@@ -210,6 +210,28 @@ test("markup inside inline code span is not parsed", () => {
   assert.equal(r.nodes[0].text, "bar");
 });
 
+test("addition containing inline backticks is still parsed (issue #8)", () => {
+  const src = "{++\nThe function `foo` is my favorite.\n++}";
+  const r = parse(src);
+  assert.equal(r.nodes.length, 1);
+  assert.equal(r.nodes[0].kind, "addition");
+  assert.equal(r.nodes[0].text, "\nThe function `foo` is my favorite.\n");
+});
+
+test("comment containing inline backticks is still parsed", () => {
+  const src = "before {>>see `foo()` for details<<} after";
+  const r = parse(src);
+  assert.equal(r.nodes.length, 1);
+  assert.equal(r.nodes[0].kind, "comment");
+});
+
+test("substitution containing inline backticks in new text is still parsed", () => {
+  const src = "{~~old~>new `code` here~~}";
+  const r = parse(src);
+  assert.equal(r.nodes.length, 1);
+  assert.equal(r.nodes[0].kind, "substitution");
+});
+
 test("skipCode option can be disabled to recover legacy behavior", () => {
   const src = "before\n```\n{++inside++}\n```\nafter";
   const r = parse(src, { skipCode: false });
