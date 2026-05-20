@@ -156,13 +156,21 @@ function findIndentedCodeRegions(
   return regions;
 }
 
-function rangeIntersectsRegions(from: number, to: number, regions: Array<[number, number]>): boolean {
-  // Binary search would be nicer; linear is fine for typical doc sizes.
+function endpointInRegion(pos: number, regions: Array<[number, number]>): boolean {
   for (const [a, b] of regions) {
-    if (to <= a) return false;
-    if (from < b && to > a) return true;
+    if (pos < a) return false;
+    if (pos < b) return true;
   }
   return false;
+}
+
+// A CriticMarkup span is "in code" iff one of its delimiters sits inside a
+// code region. This catches both the wholly-contained case (sample inside a
+// fence) and malformed crossings (open in prose, close inside a fence), while
+// preserving real markup that simply *wraps* an inline backtick span
+// (`{++ The function `foo` is good ++}` — issue #8).
+function rangeEndpointInCode(from: number, to: number, regions: Array<[number, number]>): boolean {
+  return endpointInRegion(from, regions) || endpointInRegion(to - 1, regions);
 }
 
 export interface ParseOptions {
@@ -240,7 +248,7 @@ export function parse(source: string, options: ParseOptions = {}): ParseResult {
   let lastEnd = -1;
   for (const n of nodes) {
     if (n.from < lastEnd) continue; // overlap with previous accepted node
-    if (skipCode && rangeIntersectsRegions(n.from, n.to, codeRegions)) continue;
+    if (skipCode && rangeEndpointInCode(n.from, n.to, codeRegions)) continue;
     accepted.push(n);
     lastEnd = n.to;
   }
