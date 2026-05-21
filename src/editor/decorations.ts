@@ -124,11 +124,34 @@ function rangeTouchesSelection(state: EditorState, from: number, to: number): bo
 }
 
 function buildDecorations(state: EditorState, callbacks: DecorationCallbacks): DecorationSet {
-  if (!state.field(editorLivePreviewField, false)) return Decoration.none;
-
   const source = state.doc.toString();
   const parsed = parse(source);
   const builder = new RangeSetBuilder<Decoration>();
+
+  if (!state.field(editorLivePreviewField, false)) {
+    // Source Mode: keep raw markup visible, but tint comments (per author) so
+    // they stand out from prose, and mark substitution halves so the strike-
+    // suppression CSS applies — otherwise Obsidian's `~~…~~` rendering draws
+    // a line across `new` too, hiding what's being added.
+    for (const n of parsed.nodes) {
+      if (n.kind === "comment") {
+        const cls = n.authorName ? "tc-raw-comment tc-raw-comment-named" : "tc-raw-comment tc-raw-comment-you";
+        builder.add(n.from, n.to, Decoration.mark({ class: cls }));
+      } else if (n.kind === "addition") {
+        builder.add(n.from + 3, n.to - 3, Decoration.mark({ class: "tc-addition" }));
+      } else if (n.kind === "deletion") {
+        builder.add(n.from + 3, n.to - 3, Decoration.mark({ class: "tc-deletion" }));
+      } else if (n.kind === "substitution") {
+        const oldFrom = n.from + 3;
+        const oldTo = oldFrom + n.oldText.length;
+        const newFrom = oldTo + 2;
+        const newTo = n.to - 3;
+        builder.add(oldFrom, oldTo, Decoration.mark({ class: "tc-sub-raw-old" }));
+        builder.add(newFrom, newTo, Decoration.mark({ class: "tc-sub-raw-new" }));
+      }
+    }
+    return builder.finish();
+  }
 
   type Item =
     | { kind: "thread"; thread: Thread }
@@ -315,6 +338,8 @@ export function criticDecorationsExtension(callbacks: DecorationCallbacks): Exte
       const isLP = tr.state.field(editorLivePreviewField, false);
       if (wasLP !== isLP) return buildDecorations(tr.state, callbacks);
       if (!tr.selection) return deco;
+      // Source Mode decorations don't depend on the selection.
+      if (!isLP) return deco;
       // During an active mouse drag, defer the rebuild. Obsidian dispatches a
       // mouseup transaction (with selection set) once the drag ends; that
       // transaction will land here with `dragState.mousedown === false` and

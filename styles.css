@@ -124,6 +124,15 @@
 .tc-sub-raw-new {
   background: rgba(56, 161, 105, 0.12);
 }
+.tc-raw-comment {
+  border-radius: 2px;
+}
+.tc-raw-comment-named {
+  background: hsla(280, 70%, 55%, 0.12); /* purple — AI */
+}
+.tc-raw-comment-you {
+  background: rgba(0, 122, 204, 0.10); /* blue — matches tc-chip-you */
+}
 .tc-sub-arrow {
   color: var(--text-muted);
   font-size: 0.9em;
