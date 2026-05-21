@@ -119,17 +119,16 @@
   background: rgba(56, 161, 105, 0.12);
   border-bottom: 1px solid rgba(56, 161, 105, 0.6);
 }
-/* inline-block isolates text-decoration, so any surrounding strikethrough
- * (e.g. when Obsidian's markdown parser interprets {~~...~~} as ~~strike~~)
- * doesn't draw a line across the whole widget. */
-.tc-substitution-widget {
-  display: inline-block;
-  cursor: pointer;
-  white-space: pre-wrap;
+.tc-sub-raw-old {
+  background: rgba(220, 38, 38, 0.06);
+}
+.tc-sub-raw-new {
+  background: rgba(56, 161, 105, 0.12);
 }
 .tc-sub-arrow {
   color: var(--text-muted);
   font-size: 0.9em;
+  cursor: pointer;
 }
 .tc-highlight {
   background: rgba(252, 211, 77, 0.35);
