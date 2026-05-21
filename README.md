@@ -26,6 +26,16 @@ The intended usecase: AI agents review and comment essays and texts. This plugin
 - Reading mode renders either the accepted preview or raw side-by-side
 - Markup inside code blocks is left alone
 
+## Inline interaction
+
+In Live Preview:
+
+- **Click into an addition, deletion, highlight, or either half of a substitution** to place the cursor there. The raw `{++…++}` / `{~~old~>new~~}` / etc. is exposed so you can edit it in place; the color tint stays. Click the substitution's `→` to jump to its card in the panel.
+- **Click a comment chip** to open the side panel and focus that thread.
+- **Click a card in the panel** to scroll the editor back to its chip and blink it. (Clicking into the reply textarea doesn't jump.)
+- **⌘/Ctrl-click any mark** to open the panel instead of placing the cursor. Settings → *Click highlighted text to open in panel* makes plain clicks behave that way too.
+- **Source Mode** shows raw markup verbatim — no decorations, edit `{++ ++}` etc. directly.
+
 ## Commands
 
 | Command | What it does |
