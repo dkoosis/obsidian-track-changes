@@ -16,6 +16,12 @@ export interface TrackChangesCriticMarkupSettings {
    */
   revealMarkupOnCommentJump: boolean;
   clickMarksToOpenPanel: boolean;
+  /**
+   * Ask for confirmation before deleting a comment message or thread from the
+   * panel. On by default. Turn off if you rely on undo / version control and
+   * find the dialog gets in the way.
+   */
+  confirmBeforeDelete: boolean;
   /** Defaults that pre-populate the Finalize dialog. */
   finalize: FinalizeOptions;
 }
@@ -24,6 +30,7 @@ export const DEFAULT_SETTINGS: TrackChangesCriticMarkupSettings = {
   readingShowComments: true,
   revealMarkupOnCommentJump: false,
   clickMarksToOpenPanel: false,
+  confirmBeforeDelete: true,
   finalize: { ...DEFAULT_FINALIZE },
 };
 
@@ -42,7 +49,7 @@ export class TrackChangesCriticMarkupSettingsTab extends PluginSettingTab {
     new Setting(containerEl)
       .setName("Show comments in reading view")
       .setDesc(
-        "When on (default), each comment thread renders as a small icon — hover to see the full thread. Turn off for a clean publish preview with no review artifacts. Suggestions (additions, deletions, substitutions, highlights) are always shown in their accepted form.",
+        "Render comment threads as hover icons in reading view. Off hides them for a clean preview. Suggestions always show in accepted form.",
       )
       .addToggle((t) =>
         t.setValue(this.plugin.settings.readingShowComments).onChange(async (v) => {
@@ -55,7 +62,7 @@ export class TrackChangesCriticMarkupSettingsTab extends PluginSettingTab {
     new Setting(containerEl)
       .setName("Reveal CriticMarkup on comment jump")
       .setDesc(
-        "When clicking a comment card, also select the markup so its raw {>>…<<} source is shown. Off by default — the chip stays rendered.",
+        "Opening a comment from the panel reveals its raw {>>…<<} source instead of the rendered chip.",
       )
       .addToggle((t) =>
         t.setValue(this.plugin.settings.revealMarkupOnCommentJump).onChange(async (v) => {
@@ -67,11 +74,23 @@ export class TrackChangesCriticMarkupSettingsTab extends PluginSettingTab {
     new Setting(containerEl)
       .setName("Click highlighted text to open in panel")
       .setDesc(
-        "When ON, a plain click on inline additions, deletions, highlights, or substitution halves opens the review panel. When OFF (default), the click places the cursor inside the inner text for in-place editing. Cmd/Ctrl-click always opens the panel; comment chips always open the panel.",
+        "Plain-click inline markup to open the panel instead of editing in place. Cmd/Ctrl-click and comment chips always open the panel.",
       )
       .addToggle((t) =>
         t.setValue(this.plugin.settings.clickMarksToOpenPanel).onChange(async (v) => {
           this.plugin.settings.clickMarksToOpenPanel = v;
+          await this.plugin.saveSettings();
+        }),
+      );
+
+    new Setting(containerEl)
+      .setName("Confirm before deleting")
+      .setDesc(
+        "Ask before deleting a comment or thread. Turn off to delete immediately.",
+      )
+      .addToggle((t) =>
+        t.setValue(this.plugin.settings.confirmBeforeDelete).onChange(async (v) => {
+          this.plugin.settings.confirmBeforeDelete = v;
           await this.plugin.saveSettings();
         }),
       );
