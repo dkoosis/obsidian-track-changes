@@ -303,4 +303,14 @@ test("fenced block: closing fence indent need not match the opening fence", () =
   assert.equal(r.nodes[1].text, "keep2");
 });
 
+test("fenced block: closing fence indented by 4 spaces does not close the block", () => {
+  // A fence line indented 4 spaces is CommonMark block content, not a close. Accepting
+  // it would close the block early — leaking {++fake++} and hiding {++keep++} behind a
+  // second unterminated region opened by the real closer.
+  const src = "```\n    ```\n{++fake++}\n```\ny {++keep++}";
+  const r = parse(src);
+  assert.equal(r.nodes.length, 1, "markup inside a block with a 4-space-indented fence must be ignored");
+  assert.equal(r.nodes[0].text, "keep");
+});
+
 console.log("done.");
