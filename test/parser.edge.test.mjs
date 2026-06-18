@@ -276,4 +276,31 @@ test("indented code block with internal blank line is one continuous region", ()
   assert.equal(r.nodes[0].text, "real");
 });
 
+// --- fenced-code edge cases: CRLF line endings & closing-fence indentation ---
+// The fence close alternative used `\2\3` (opener's exact indent) plus a
+// `(?=\n|$)` lookahead. That breaks two ways:
+//   1. CRLF docs — the `\r` before the closing newline defeats `(?=\n|$)`, so
+//      the fence never closes and all markup after it is swallowed as code.
+//   2. A closing fence indented differently from the opener doesn't match `\2`,
+//      so trailing markup is swallowed. CommonMark allows the closer to be
+//      indented 0–3 independently of the opener.
+
+test("CRLF: markup after a fenced code block still parses", () => {
+  const lf = "a {++keep++}\n```\n{++fake++}\n```\nb {++keep2++}";
+  const src = lf.replace(/\n/g, "\r\n");
+  const r = parse(src);
+  assert.equal(r.nodes.length, 2, "real markup before and after the fence must parse on CRLF");
+  assert.equal(r.nodes[0].text, "keep");
+  assert.equal(r.nodes[1].text, "keep2");
+});
+
+test("fenced block: closing fence indent need not match the opening fence", () => {
+  // Opener indented one space, closer at column 0 — a valid CommonMark close.
+  const src = "x {++keep++}\n ```\n{++fake++}\n```\ny {++keep2++}";
+  const r = parse(src);
+  assert.equal(r.nodes.length, 2, "markup after a differently-indented closer must parse");
+  assert.equal(r.nodes[0].text, "keep");
+  assert.equal(r.nodes[1].text, "keep2");
+});
+
 console.log("done.");
