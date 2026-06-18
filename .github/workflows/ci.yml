@@ -1,0 +1,28 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+jobs:
+  test:
+    name: test (${{ matrix.os }})
+    strategy:
+      fail-fast: false
+      matrix:
+        # Obsidian also runs on Windows, but this suite is pure in-memory JS —
+        # Node behaves identically across OSes and CRLF cases are constructed in
+        # the test strings, not read from disk. Add windows-latest here once we
+        # introduce on-disk CRLF fixtures (where git autocrlf would matter).
+        os: [ubuntu-latest, macos-latest]
+    runs-on: ${{ matrix.os }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: npm
+      - run: npm ci
+      - run: npm run typecheck
+      - run: npm test
