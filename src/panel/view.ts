@@ -381,16 +381,12 @@ export class ReviewPanelView extends ItemView {
       setIcon(del, "trash-2");
       del.addEventListener("click", (e) => {
         e.stopPropagation();
-        runEdit(
-          (async () => {
-            const confirmed = await this.confirmDestructiveAction(
-              "Delete message",
-              "Remove this comment message from the note.",
-              "Delete",
-            );
-            if (!confirmed) return;
-            await this.host.applyEdits(file, [deleteCommentNode(c)]);
-          })(),
+        this.confirmAndEdit(
+          file,
+          [deleteCommentNode(c)],
+          "Delete message",
+          "Remove this comment message from the note.",
+          "Delete",
         );
       });
 
@@ -470,16 +466,12 @@ export class ReviewPanelView extends ItemView {
         text: "Delete thread",
       });
       deleteThreadBtn.addEventListener("click", () => {
-        runEdit(
-          (async () => {
-            const confirmed = await this.confirmDestructiveAction(
-              "Delete thread",
-              "Remove this entire comment thread from the note.",
-              "Delete thread",
-            );
-            if (!confirmed) return;
-            await this.host.applyEdits(file, [deleteThread(this.currentSource, thread)]);
-          })(),
+        this.confirmAndEdit(
+          file,
+          [deleteThread(this.currentSource, thread)],
+          "Delete thread",
+          "Remove this entire comment thread from the note.",
+          "Delete thread",
         );
       });
     }
@@ -721,6 +713,26 @@ export class ReviewPanelView extends ItemView {
       if (run.changed) el.createSpan({ cls: "tc-diff-changed", text: run.text });
       else el.appendText(run.text);
     }
+  }
+
+  /**
+   * Confirm a destructive action, then apply its edits if the user agrees.
+   * Wraps the confirm→apply flow in `runEdit` so a reject surfaces a Notice.
+   */
+  private confirmAndEdit(
+    file: TFile,
+    edits: SourceEdit[],
+    title: string,
+    message: string,
+    confirmText: string,
+  ): void {
+    runEdit(
+      (async () => {
+        const confirmed = await this.confirmDestructiveAction(title, message, confirmText);
+        if (!confirmed) return;
+        await this.host.applyEdits(file, edits);
+      })(),
+    );
   }
 
   private confirmDestructiveAction(
