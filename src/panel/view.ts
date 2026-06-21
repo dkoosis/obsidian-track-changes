@@ -44,6 +44,8 @@ import {
   deleteThread,
   removeHighlight,
   validateReplyText,
+  adjacentHighlightForThread,
+  resolveSpanComment,
   type SourceEdit,
 } from "../operations";
 
@@ -225,9 +227,22 @@ export class ReviewPanelView extends ItemView {
     this.currentSource = source;
     const parsed = parse(source);
 
+    // Pair each span-anchored comment with its preceding adjacent highlight
+    // (R-COM-6). The highlight is shown as the comment's anchor inside one card
+    // and resolved together; it must not also render as its own highlight card.
+    const pairedHighlight = new Map<number, HighlightNode>(); // thread index -> highlight
+    const consumedHighlights = new Set<number>(); // node index of paired highlights
+    for (let t = 0; t < parsed.threads.length; t++) {
+      const h = adjacentHighlightForThread(parsed, source, parsed.threads[t]);
+      if (h) {
+        pairedHighlight.set(t, h);
+        consumedHighlights.add(parsed.threads[t].rootIndex - 1);
+      }
+    }
+
     this.contentEl.empty();
 
-    this.renderHeader(file, parsed);
+    this.renderHeader(file, parsed, consumedHighlights.size);
 
     if (parsed.nodes.length === 0) {
       this.contentEl.createEl("p", {
@@ -250,7 +265,17 @@ export class ReviewPanelView extends ItemView {
         if (seenThreads.has(tIdx)) continue;
         seenThreads.add(tIdx);
         threadNumber++;
-        this.renderThreadCard(list, file, source, parsed, parsed.threads[tIdx], threadNumber);
+        this.renderThreadCard(
+          list,
+          file,
+          source,
+          parsed,
+          parsed.threads[tIdx],
+          threadNumber,
+          pairedHighlight.get(tIdx) ?? null,
+        );
+      } else if (n.kind === "highlight" && consumedHighlights.has(i)) {
+        continue; // shown inside its paired comment card
       } else if (n.kind === "addition") {
         this.renderAdditionCard(list, file, source, n);
       } else if (n.kind === "deletion") {
@@ -263,7 +288,7 @@ export class ReviewPanelView extends ItemView {
     }
   }
 
-  private renderHeader(file: TFile, parsed: ParseResult): void {
+  private renderHeader(file: TFile, parsed: ParseResult, pairedHighlights = 0): void {
     const header = this.contentEl.createDiv({ cls: "tc-header" });
     header.createEl("div", { cls: "tc-header-title", text: file.basename });
     const counts = {
@@ -271,7 +296,10 @@ export class ReviewPanelView extends ItemView {
       suggestions: parsed.nodes.filter(
         (n) => n.kind === "addition" || n.kind === "deletion" || n.kind === "substitution",
       ).length,
-      highlights: parsed.nodes.filter((n) => n.kind === "highlight").length,
+      // Paired highlights show inside their comment card, not as standalone
+      // highlights — don't double-count them here.
+      highlights:
+        parsed.nodes.filter((n) => n.kind === "highlight").length - pairedHighlights,
     };
     const parts: string[] = [];
     parts.push(`${counts.threads} ${counts.threads === 1 ? "comment" : "comments"}`);
@@ -289,8 +317,10 @@ export class ReviewPanelView extends ItemView {
     parsed: ParseResult,
     thread: Thread,
     threadNumber: number,
+    pairedHighlight: HighlightNode | null,
   ): void {
     const card = list.createDiv({ cls: "tc-card tc-card-thread" });
+    if (pairedHighlight) card.addClass("tc-card-paired");
     card.setAttr("data-tc-card-offset", String(thread.from));
     const isCollapsed = this.collapsedCards.has(thread.from);
     if (isCollapsed) card.addClass("tc-card-collapsed");
@@ -309,6 +339,12 @@ export class ReviewPanelView extends ItemView {
 
     const root = parsed.nodes[thread.rootIndex] as CommentNode;
     this.renderThreadHeader(card, source, thread, threadNumber, root);
+
+    if (pairedHighlight) {
+      const anchor = card.createDiv({ cls: "tc-thread-anchor" });
+      anchor.createSpan({ cls: "tc-thread-anchor-label", text: "On" });
+      anchor.createSpan({ cls: "tc-thread-anchor-text", text: pairedHighlight.text });
+    }
 
     const messages = card.createDiv({ cls: "tc-messages" });
     const ids: number[] = [thread.rootIndex, ...thread.replyIndexes];
@@ -374,21 +410,37 @@ export class ReviewPanelView extends ItemView {
     const actions = reply.createDiv({ cls: "tc-reply-actions" });
     const submitBtn = actions.createEl("button", { cls: "tc-btn-primary", text: "Reply" });
     submitBtn.addEventListener("click", () => void submit());
-    const deleteThreadBtn = actions.createEl("button", {
-      cls: "tc-btn-danger",
-      text: "Delete thread",
-    });
-    deleteThreadBtn.addEventListener("click", () => {
-      void (async () => {
-        const confirmed = await this.confirmDestructiveAction(
-          "Delete thread",
-          "Remove this entire comment thread from the note.",
-          "Delete thread",
+    if (pairedHighlight) {
+      // Resolve = strip the highlight (keep its text) + delete the thread, one
+      // batch (R-COM-6 / E9). It completes the comment rather than destroying
+      // content, so it isn't gated behind the delete confirmation.
+      const resolveBtn = actions.createEl("button", {
+        cls: "tc-btn-accept",
+        text: "Resolve",
+      });
+      resolveBtn.addEventListener("click", () => {
+        void this.host.applyEdits(
+          file,
+          resolveSpanComment(this.currentSource, pairedHighlight, thread),
         );
-        if (!confirmed) return;
-        await this.host.applyEdits(file, [deleteThread(this.currentSource, thread)]);
-      })();
-    });
+      });
+    } else {
+      const deleteThreadBtn = actions.createEl("button", {
+        cls: "tc-btn-danger",
+        text: "Delete thread",
+      });
+      deleteThreadBtn.addEventListener("click", () => {
+        void (async () => {
+          const confirmed = await this.confirmDestructiveAction(
+            "Delete thread",
+            "Remove this entire comment thread from the note.",
+            "Delete thread",
+          );
+          if (!confirmed) return;
+          await this.host.applyEdits(file, [deleteThread(this.currentSource, thread)]);
+        })();
+      });
+    }
   }
 
   private renderAdditionCard(
