@@ -30,6 +30,27 @@ export function validateReplyText(text: string): string | null {
   return null;
 }
 
+// --- Authoring builders (UI-initiated marks; spec §5) ---
+// These wrap a live selection in CriticMarkup. The author prefix (`Name:`) is
+// applied by the caller, not here — builders stay settings-unaware. cm-4 adds
+// the comment/substitute builders alongside this one.
+
+/** Wrap a selection as a deletion: `[from,to)` -> `{--selected--}`. */
+export function deleteSelection(from: number, to: number, selected: string): SourceEdit {
+  return { from, to, insert: `{--${selected}--}`, expected: selected };
+}
+
+/**
+ * True if `[s,e)` intersects any parsed node's *full* range (delimiters and
+ * body). Caller passes `parse(src).nodes`. Used to refuse a destructive author
+ * action that would land inside or across an existing mark — wrapping there
+ * would nest markup the parser's dedup then silently drops. Half-open overlap:
+ * `s < n.to && n.from < e`.
+ */
+export function selectionOverlapsNodes(nodes: CriticNode[], s: number, e: number): boolean {
+  return nodes.some((n) => s < n.to && n.from < e);
+}
+
 /** Apply a list of edits to a source string. Edits must be non-overlapping. */
 export function applyEdits(source: string, edits: SourceEdit[]): string {
   const sorted = [...edits].sort((a, b) => b.from - a.from);

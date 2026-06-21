@@ -11,7 +11,14 @@ import type { Extension } from "@codemirror/state";
 
 import { criticDecorationsExtension } from "./editor/decorations";
 import { REVIEW_VIEW_TYPE, ReviewPanelView, type PanelHost } from "./panel/view";
-import { applyEdits, rebaseEdits, type SourceEdit } from "./operations";
+import {
+  applyEdits,
+  rebaseEdits,
+  deleteSelection,
+  selectionOverlapsNodes,
+  type SourceEdit,
+} from "./operations";
+import { parse } from "./parser";
 import { makeReadingPostProcessor } from "./reading";
 import { FinalizeModal } from "./finalize";
 import {
@@ -50,6 +57,28 @@ export default class TrackChangesCriticMarkupPlugin extends Plugin {
       id: "open-review-panel",
       name: "Open review panel",
       callback: () => this.openReviewPanel(),
+    });
+    this.addCommand({
+      id: "mark-selection-deleted",
+      name: "Mark selection deleted",
+      editorCheckCallback: (checking, editor, ctx) => {
+        const from = editor.posToOffset(editor.getCursor("from"));
+        const to = editor.posToOffset(editor.getCursor("to"));
+        if (from === to) return false; // empty selection
+        const source = editor.getValue();
+        // Refuse if the selection touches an existing mark — wrapping inside or
+        // across a node would nest markup the parser's dedup silently drops.
+        // Re-checked on BOTH the show (checking=true) and act runs.
+        if (selectionOverlapsNodes(parse(source).nodes, from, to)) return false;
+        if (checking) return true;
+        const file = ctx.file;
+        if (!file) return false;
+        const selected = source.slice(from, to);
+        void this.applyEditsToFile(file, [deleteSelection(from, to, selected)], {
+          requireAll: true,
+        });
+        return true;
+      },
     });
     this.addCommand({
       id: "finalize-for-publish",
