@@ -51,6 +51,15 @@ import {
 
 export const REVIEW_VIEW_TYPE = "tc-review-panel";
 
+/**
+ * Fire-and-forget an edit promise. Handled failures (rebase miss, dropped
+ * edits) already surface a Notice and resolve `false`; this only guards the
+ * rare genuine reject (vault I/O, overlap throw) so it isn't swallowed.
+ */
+function runEdit(p: Promise<unknown>): void {
+  void p.catch(() => new Notice("Couldn't apply the change."));
+}
+
 export interface PanelHost {
   app: App;
   /** Get the file the panel should display, or null if none. */
@@ -62,8 +71,12 @@ export interface PanelHost {
    * dispatches a CM transaction (Obsidian's editor→vault sync is debounced).
    */
   getCurrentSource(file: TFile): string | null;
-  /** Apply a list of edits to a file, preserving undo history when possible. */
-  applyEdits(file: TFile, edits: SourceEdit[]): Promise<void>;
+  /**
+   * Apply a list of edits to a file, preserving undo history when possible.
+   * Resolves `true` if the edits were written, `false` if they were rejected
+   * or dropped (the host has already shown the user a Notice in that case).
+   */
+  applyEdits(file: TFile, edits: SourceEdit[]): Promise<boolean>;
   /**
    * Scroll the editor to a source offset. If `flashChip` is true, the target
    * is treated as a comment chip: the chip blinks briefly so it's easier to
@@ -365,15 +378,17 @@ export class ReviewPanelView extends ItemView {
       setIcon(del, "trash-2");
       del.addEventListener("click", (e) => {
         e.stopPropagation();
-        void (async () => {
-          const confirmed = await this.confirmDestructiveAction(
-            "Delete message",
-            "Remove this comment message from the note.",
-            "Delete",
-          );
-          if (!confirmed) return;
-          await this.host.applyEdits(file, [deleteCommentNode(c)]);
-        })();
+        runEdit(
+          (async () => {
+            const confirmed = await this.confirmDestructiveAction(
+              "Delete message",
+              "Remove this comment message from the note.",
+              "Delete",
+            );
+            if (!confirmed) return;
+            await this.host.applyEdits(file, [deleteCommentNode(c)]);
+          })(),
+        );
       });
 
       const body = msg.createDiv({ cls: "tc-message-body" });
@@ -392,7 +407,7 @@ export class ReviewPanelView extends ItemView {
     ta.addEventListener("keydown", (e) => {
       if (e.key === "Enter" && (e.metaKey || e.ctrlKey)) {
         e.preventDefault();
-        void submit();
+        runEdit(submit());
       }
     });
     const submit = async (): Promise<void> => {
@@ -403,13 +418,15 @@ export class ReviewPanelView extends ItemView {
         new Notice(validationError);
         return;
       }
-      this.replyDrafts.delete(thread.from);
       const edit = appendReply(this.currentSource, thread, parsed, text);
-      await this.host.applyEdits(file, [edit]);
+      // Drop the draft only once the write lands. A reject (vault I/O,
+      // overlap throw) would otherwise discard the user's typed reply.
+      const ok = await this.host.applyEdits(file, [edit]);
+      if (ok) this.replyDrafts.delete(thread.from);
     };
     const actions = reply.createDiv({ cls: "tc-reply-actions" });
     const submitBtn = actions.createEl("button", { cls: "tc-btn-primary", text: "Reply" });
-    submitBtn.addEventListener("click", () => void submit());
+    submitBtn.addEventListener("click", () => runEdit(submit()));
     if (pairedHighlight) {
       // Resolve = strip the highlight (keep its text) + delete the thread, one
       // batch (R-COM-6 / E9). It completes the comment rather than destroying
@@ -419,9 +436,11 @@ export class ReviewPanelView extends ItemView {
         text: "Resolve",
       });
       resolveBtn.addEventListener("click", () => {
-        void this.host.applyEdits(
-          file,
-          resolveSpanComment(this.currentSource, pairedHighlight, thread),
+        runEdit(
+          this.host.applyEdits(
+            file,
+            resolveSpanComment(this.currentSource, pairedHighlight, thread),
+          ),
         );
       });
     } else {
@@ -430,15 +449,17 @@ export class ReviewPanelView extends ItemView {
         text: "Delete thread",
       });
       deleteThreadBtn.addEventListener("click", () => {
-        void (async () => {
-          const confirmed = await this.confirmDestructiveAction(
-            "Delete thread",
-            "Remove this entire comment thread from the note.",
-            "Delete thread",
-          );
-          if (!confirmed) return;
-          await this.host.applyEdits(file, [deleteThread(this.currentSource, thread)]);
-        })();
+        runEdit(
+          (async () => {
+            const confirmed = await this.confirmDestructiveAction(
+              "Delete thread",
+              "Remove this entire comment thread from the note.",
+              "Delete thread",
+            );
+            if (!confirmed) return;
+            await this.host.applyEdits(file, [deleteThread(this.currentSource, thread)]);
+          })(),
+        );
       });
     }
   }
@@ -583,7 +604,7 @@ export class ReviewPanelView extends ItemView {
       text: "Remove highlight",
     });
     removeBtn.addEventListener("click", () => {
-      void this.host.applyEdits(file, [removeHighlight(n)]);
+      runEdit(this.host.applyEdits(file, [removeHighlight(n)]));
     });
   }
 
@@ -596,11 +617,11 @@ export class ReviewPanelView extends ItemView {
     const actions = card.createDiv({ cls: "tc-card-actions" });
     const acceptBtn = actions.createEl("button", { cls: "tc-btn-accept", text: "Accept" });
     acceptBtn.addEventListener("click", () => {
-      void this.host.applyEdits(file, [accept()]);
+      runEdit(this.host.applyEdits(file, [accept()]));
     });
     const rejectBtn = actions.createEl("button", { cls: "tc-btn-reject", text: "Reject" });
     rejectBtn.addEventListener("click", () => {
-      void this.host.applyEdits(file, [reject()]);
+      runEdit(this.host.applyEdits(file, [reject()]));
     });
   }
 
