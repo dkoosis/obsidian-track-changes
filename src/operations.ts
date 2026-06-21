@@ -9,7 +9,7 @@
 // apply-time (because the user typed, or the AI re-edited the file) would be
 // corrupted by stale offsets.
 
-import type { CriticNode, Thread, ParseResult, CommentNode } from "./parser";
+import type { CriticNode, Thread, ParseResult, CommentNode, HighlightNode } from "./parser";
 
 export interface SourceEdit {
   from: number;
@@ -22,10 +22,27 @@ export interface SourceEdit {
 }
 
 const COMMENT_CLOSE = "<<}";
+const HIGHLIGHT_CLOSE = "==}";
 
 export function validateReplyText(text: string): string | null {
   if (text.includes(COMMENT_CLOSE)) {
     return "Replies cannot contain the CriticMarkup comment closing marker <<}.";
+  }
+  return null;
+}
+
+/**
+ * Reject a selection that can't be safely wrapped as a highlight (E11): the
+ * span-anchored comment builder emits `{==selected==}`, so a literal `==}`
+ * inside the selection closes the highlight early — the parser then slices a
+ * truncated node and leaks the tail as stray text. The highlight-side analogue
+ * of `validateSubstitution` (~~/~>) and `validateReplyText` (<<}). A trailing
+ * single `=` is safe: the lazy parser keeps it in the node body, so only the
+ * literal closer is rejected. Returns an error message or null.
+ */
+export function validateHighlightContent(selected: string): string | null {
+  if (selected.includes(HIGHLIGHT_CLOSE)) {
+    return "Selection cannot contain the CriticMarkup highlight closing marker ==}.";
   }
   return null;
 }
@@ -275,6 +292,40 @@ export function deleteThread(source: string, thread: Thread): SourceEdit {
     insert: "",
     expected: source.slice(thread.from, thread.to),
   };
+}
+
+/**
+ * The highlight immediately preceding a thread, if the two are adjacent (only
+ * inline whitespace, no newline, between them). This is the shape a human
+ * authoring action produces — `{==sel==}{>>body<<}` — so the panel pairs them
+ * into one card (anchor = highlight text) and resolves both together. Agent
+ * comments are bare `{>>…<<}` with no preceding highlight, so they never pair.
+ * Returns null when the node before the thread root isn't an adjacent highlight.
+ */
+export function adjacentHighlightForThread(
+  parsed: ParseResult,
+  source: string,
+  thread: Thread,
+): HighlightNode | null {
+  const prev = parsed.nodes[thread.rootIndex - 1];
+  if (!prev || prev.kind !== "highlight") return null;
+  // Mirror the parser's threading adjacency: inline whitespace only.
+  if (!/^[ \t]*$/.test(source.slice(prev.to, thread.from))) return null;
+  return prev;
+}
+
+/**
+ * Resolve a span-anchored comment (R-COM-6 / E9): strip the highlight wrapper
+ * (keep its inner text) and delete the whole thread, in one batch. Net result
+ * is the formerly highlighted text as plain prose with the comment gone. The
+ * two edits don't overlap — the highlight ends at or before the thread start.
+ */
+export function resolveSpanComment(
+  source: string,
+  highlight: HighlightNode,
+  thread: Thread,
+): SourceEdit[] {
+  return [removeHighlight(highlight), deleteThread(source, thread)];
 }
 
 /**

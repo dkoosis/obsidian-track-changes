@@ -33,6 +33,7 @@ const {
   substituteSelection,
   validateSubstitution,
   validateReplyText,
+  validateHighlightContent,
   beforeAnchor,
   snapOutOffset,
   applyEdits,
@@ -160,6 +161,37 @@ test("E5: validateReplyText rejects a body containing <<}", () => {
 
 test("E5: validateReplyText passes a clean body", () => {
   assert.equal(validateReplyText("a normal comment"), null);
+});
+
+// --- E13: reject a selection carrying the highlight closer (otc-zhr) ---
+test("E13: validateHighlightContent rejects a selection containing ==}", () => {
+  assert.ok(validateHighlightContent("foo ==} bar"));
+});
+
+test("E13: validateHighlightContent passes a clean selection", () => {
+  assert.equal(validateHighlightContent("a normal selection"), null);
+});
+
+test("E13: a trailing single = is safe (kept in the node body, not rejected)", () => {
+  // The lazy {==…==} parser absorbs the extra = rather than closing early, so
+  // there's nothing to reject — confirm both the validator and a round-trip.
+  assert.equal(validateHighlightContent("x ="), null);
+  const out = applyEdits("a x = b", [commentOnSelection(2, 5, "x =", "note")]);
+  assert.equal(out, "a {==x ===}{>>note<<} b");
+  const r = parse(out);
+  const hl = r.nodes.find((n) => n.kind === "highlight");
+  assert.equal(hl.text, "x =", "the trailing = round-trips intact");
+});
+
+test("E13: without the guard, a ==} selection would truncate the highlight", () => {
+  // Documents the corruption the guard prevents: the wrapper closes at the
+  // selection's ==} and the tail leaks as stray text.
+  const src = "p q==} r";
+  const from = src.indexOf("q"), to = from + "q==}".length;
+  const out = applyEdits(src, [commentOnSelection(from, to, src.slice(from, to), "note")]);
+  const r = parse(out);
+  const hl = r.nodes.find((n) => n.kind === "highlight");
+  assert.notEqual(hl.text, "q==}", "highlight is truncated — why the guard rejects this");
 });
 
 // --- E8: extend the before anchor when the line prefix is short ---

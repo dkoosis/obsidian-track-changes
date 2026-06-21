@@ -240,6 +240,31 @@
   padding: 1px 6px;
   font-variant-numeric: tabular-nums;
 }
+.tc-thread-anchor {
+  display: flex;
+  align-items: baseline;
+  gap: 6px;
+  font-size: 0.85em;
+  margin: 2px 0 4px;
+  padding-left: 6px;
+  border-left: 3px solid var(--text-highlight-bg, rgba(255, 208, 0, 0.6));
+}
+.tc-thread-anchor-label {
+  color: var(--text-muted);
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+  font-size: 0.85em;
+  flex: none;
+}
+.tc-thread-anchor-text {
+  color: var(--text-normal);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.tc-card-collapsed .tc-thread-anchor {
+  display: none;
+}
 .tc-thread-preview,
 .tc-card-preview {
   display: none;
