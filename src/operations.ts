@@ -23,6 +23,7 @@ export interface SourceEdit {
 
 const COMMENT_CLOSE = "<<}";
 const HIGHLIGHT_CLOSE = "==}";
+const DELETION_CLOSE = "--}";
 
 export function validateReplyText(text: string): string | null {
   if (text.includes(COMMENT_CLOSE)) {
@@ -43,6 +44,19 @@ export function validateReplyText(text: string): string | null {
 export function validateHighlightContent(selected: string): string | null {
   if (selected.includes(HIGHLIGHT_CLOSE)) {
     return "Selection cannot contain the CriticMarkup highlight closing marker ==}.";
+  }
+  return null;
+}
+
+/**
+ * Reject a selection carrying the deletion closer `--}` — the delete-side
+ * analogue of `validateHighlightContent` (==}) and `validateReplyText` (<<}).
+ * `deleteSelection` emits `{--selected--}`; an embedded `--}` would close the
+ * node early and leave the rest of the selection as raw text outside the mark.
+ */
+export function validateDeletionContent(selected: string): string | null {
+  if (selected.includes(DELETION_CLOSE)) {
+    return "Selection cannot contain the CriticMarkup deletion closing marker --}.";
   }
   return null;
 }

@@ -34,6 +34,8 @@ const {
   validateSubstitution,
   validateReplyText,
   validateHighlightContent,
+  validateDeletionContent,
+  deleteSelection,
   beforeAnchor,
   snapOutOffset,
   applyEdits,
@@ -181,6 +183,23 @@ test("E13: a trailing single = is safe (kept in the node body, not rejected)", (
   const r = parse(out);
   const hl = r.nodes.find((n) => n.kind === "highlight");
   assert.equal(hl.text, "x =", "the trailing = round-trips intact");
+});
+
+// --- delete-side closer guard (--}; analogue of E13's ==}) ---
+test("validateDeletionContent rejects a selection containing --}", () => {
+  assert.ok(validateDeletionContent("foo --} bar"));
+});
+
+test("validateDeletionContent passes a clean selection", () => {
+  assert.equal(validateDeletionContent("a normal selection"), null);
+});
+
+test("a clean deletion still round-trips to a single deletion node", () => {
+  // Guard rejects only the embedded closer; ordinary prose wraps as before.
+  const out = applyEdits("a foo b", [deleteSelection(2, 5, "foo")]);
+  assert.equal(out, "a {--foo--} b");
+  const dels = parse(out).nodes.filter((n) => n.kind === "deletion");
+  assert.equal(dels.length, 1);
 });
 
 test("E13: without the guard, a ==} selection would truncate the highlight", () => {

@@ -22,6 +22,7 @@ import {
   snapOutOffset,
   beforeAnchor,
   validateHighlightContent,
+  validateDeletionContent,
   type SourceEdit,
 } from "./operations";
 import { parse } from "./parser";
@@ -69,6 +70,8 @@ export default class TrackChangesCriticMarkupPlugin extends Plugin {
       id: "mark-selection-deleted",
       name: "Mark selection deleted",
       editorCheckCallback: (checking, editor, ctx) => {
+        const file = ctx.file;
+        if (!file) return false;
         const from = editor.posToOffset(editor.getCursor("from"));
         const to = editor.posToOffset(editor.getCursor("to"));
         if (from === to) return false; // empty selection
@@ -78,9 +81,15 @@ export default class TrackChangesCriticMarkupPlugin extends Plugin {
         // Re-checked on BOTH the show (checking=true) and act runs.
         if (selectionOverlapsNodes(parse(source).nodes, from, to)) return false;
         if (checking) return true;
-        const file = ctx.file;
-        if (!file) return false;
         const selected = source.slice(from, to);
+        // Refuse a selection carrying the deletion closer --}; wrapping it would
+        // close the node early and orphan the tail as raw text (delete-side
+        // analogue of the ==} highlight guard).
+        const err = validateDeletionContent(selected);
+        if (err) {
+          new Notice(err);
+          return true;
+        }
         void this.applyEditsToFile(file, [deleteSelection(from, to, selected)], {
           requireAll: true,
         });
@@ -132,6 +141,8 @@ export default class TrackChangesCriticMarkupPlugin extends Plugin {
       id: "substitute-selection",
       name: "Substitute selection",
       editorCheckCallback: (checking, editor, ctx) => {
+        const file = ctx.file;
+        if (!file) return false;
         const from = editor.posToOffset(editor.getCursor("from"));
         const to = editor.posToOffset(editor.getCursor("to"));
         if (from === to) return false; // needs a selection
@@ -140,8 +151,6 @@ export default class TrackChangesCriticMarkupPlugin extends Plugin {
         // Re-checked on both the show and the act runs.
         if (selectionOverlapsNodes(parse(source).nodes, from, to)) return false;
         if (checking) return true;
-        const file = ctx.file;
-        if (!file) return false;
         const selected = source.slice(from, to);
         new AuthorCaptureModal(
           this.app,
