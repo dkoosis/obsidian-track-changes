@@ -11,9 +11,24 @@ import type { Extension } from "@codemirror/state";
 
 import { criticDecorationsExtension } from "./editor/decorations";
 import { REVIEW_VIEW_TYPE, ReviewPanelView, type PanelHost } from "./panel/view";
-import { applyEdits, rebaseEdits, type SourceEdit } from "./operations";
+import {
+  applyEdits,
+  rebaseEdits,
+  deleteSelection,
+  selectionOverlapsNodes,
+  commentOnSelection,
+  commentAtPoint,
+  substituteSelection,
+  snapOutOffset,
+  beforeAnchor,
+  validateHighlightContent,
+  validateDeletionContent,
+  type SourceEdit,
+} from "./operations";
+import { parse } from "./parser";
 import { makeReadingPostProcessor } from "./reading";
 import { FinalizeModal } from "./finalize";
+import { AuthorCaptureModal } from "./capture-modal";
 import {
   DEFAULT_SETTINGS,
   TrackChangesCriticMarkupSettingsTab,
@@ -50,6 +65,111 @@ export default class TrackChangesCriticMarkupPlugin extends Plugin {
       id: "open-review-panel",
       name: "Open review panel",
       callback: () => this.openReviewPanel(),
+    });
+    this.addCommand({
+      id: "mark-selection-deleted",
+      name: "Mark selection deleted",
+      editorCheckCallback: (checking, editor, ctx) => {
+        const file = ctx.file;
+        if (!file) return false;
+        const from = editor.posToOffset(editor.getCursor("from"));
+        const to = editor.posToOffset(editor.getCursor("to"));
+        if (from === to) return false; // empty selection
+        const source = editor.getValue();
+        // Refuse if the selection touches an existing mark — wrapping inside or
+        // across a node would nest markup the parser's dedup silently drops.
+        // Re-checked on BOTH the show (checking=true) and act runs.
+        if (selectionOverlapsNodes(parse(source).nodes, from, to)) return false;
+        if (checking) return true;
+        const selected = source.slice(from, to);
+        // Refuse a selection carrying the deletion closer --}; wrapping it would
+        // close the node early and orphan the tail as raw text (delete-side
+        // analogue of the ==} highlight guard).
+        const err = validateDeletionContent(selected);
+        if (err) {
+          new Notice(err);
+          return true;
+        }
+        void this.applyEditsToFile(file, [deleteSelection(from, to, selected)], {
+          requireAll: true,
+        });
+        return true;
+      },
+    });
+    this.addCommand({
+      id: "comment-on-selection",
+      name: "Comment on selection",
+      // Comment never refuses (spec Decision C): a collapsed cursor inserts a
+      // bare point-comment; a selection intersecting a mark snaps out past it.
+      editorCheckCallback: (checking, editor, ctx) => {
+        const file = ctx.file;
+        if (!file) return false;
+        if (checking) return true;
+        const source = editor.getValue();
+        const from = editor.posToOffset(editor.getCursor("from"));
+        const to = editor.posToOffset(editor.getCursor("to"));
+        const selected = source.slice(from, to);
+        // Only a clean selection takes the span-anchored {==…==} path; a
+        // collapsed cursor or a mark-intersecting selection degrades to a bare
+        // {>>…<<} that doesn't wrap the selection. So the highlight-content
+        // guard (E11) applies only when we'd actually wrap (refuse + Notice).
+        if (from !== to && !selectionOverlapsNodes(parse(source).nodes, from, to)) {
+          const err = validateHighlightContent(selected);
+          if (err) {
+            new Notice(err);
+            return true;
+          }
+        }
+        new AuthorCaptureModal(
+          this.app,
+          file,
+          source,
+          "comment",
+          selected,
+          async ({ text, source: snapshot }) => {
+            const edit = this.buildCommentEdit(snapshot, from, to, text);
+            await this.applyEditsToFile(file, [edit], {
+              requireAll: true,
+              expectedSource: snapshot,
+            });
+          },
+        ).open();
+        return true;
+      },
+    });
+    this.addCommand({
+      id: "substitute-selection",
+      name: "Substitute selection",
+      editorCheckCallback: (checking, editor, ctx) => {
+        const file = ctx.file;
+        if (!file) return false;
+        const from = editor.posToOffset(editor.getCursor("from"));
+        const to = editor.posToOffset(editor.getCursor("to"));
+        if (from === to) return false; // needs a selection
+        const source = editor.getValue();
+        // Destructive: refuse if the selection touches an existing mark.
+        // Re-checked on both the show and the act runs.
+        if (selectionOverlapsNodes(parse(source).nodes, from, to)) return false;
+        if (checking) return true;
+        const selected = source.slice(from, to);
+        new AuthorCaptureModal(
+          this.app,
+          file,
+          source,
+          "substitute",
+          selected,
+          async ({ text, source: snapshot }) => {
+            // Validation already ran in the modal; the span-anchored edit drops
+            // on drift via expectedSource (E6) / fail-closed rebase (E7).
+            const edit = substituteSelection(from, to, selected, text);
+            await this.applyEditsToFile(file, [edit], {
+              requireAll: true,
+              expectedSource: snapshot,
+            });
+          },
+        ).open();
+        return true;
+      },
     });
     this.addCommand({
       id: "finalize-for-publish",
@@ -179,6 +299,27 @@ export default class TrackChangesCriticMarkupPlugin extends Plugin {
       const view = this.getReviewView();
       if (file && view) view.focusOffset(file, offset);
     })();
+  }
+
+  /**
+   * Pick the right comment builder for a selection against `source`:
+   *   - clean non-empty selection -> span-anchored `{==sel==}{>>body<<}`;
+   *   - collapsed cursor, or a selection intersecting a mark -> bare
+   *     `{>>body<<}` snapped out past the last intersecting node, so it never
+   *     nests inside a body (which the parser's dedup would silently drop).
+   */
+  private buildCommentEdit(
+    source: string,
+    from: number,
+    to: number,
+    body: string,
+  ): SourceEdit {
+    const nodes = parse(source).nodes;
+    if (from !== to && !selectionOverlapsNodes(nodes, from, to)) {
+      return commentOnSelection(from, to, source.slice(from, to), body);
+    }
+    const at = from === to ? from : snapOutOffset(nodes, from, to) ?? to;
+    return commentAtPoint(at, body, beforeAnchor(source, at));
   }
 
   // ---- editor edit application ----

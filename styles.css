@@ -240,6 +240,31 @@
   padding: 1px 6px;
   font-variant-numeric: tabular-nums;
 }
+.tc-thread-anchor {
+  display: flex;
+  align-items: baseline;
+  gap: 6px;
+  font-size: 0.85em;
+  margin: 2px 0 4px;
+  padding-left: 6px;
+  border-left: 3px solid var(--text-highlight-bg, rgba(255, 208, 0, 0.6));
+}
+.tc-thread-anchor-label {
+  color: var(--text-muted);
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+  font-size: 0.85em;
+  flex: none;
+}
+.tc-thread-anchor-text {
+  color: var(--text-normal);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.tc-card-collapsed .tc-thread-anchor {
+  display: none;
+}
 .tc-thread-preview,
 .tc-card-preview {
   display: none;
@@ -497,6 +522,27 @@
 }
 
 .tc-confirm-buttons {
+  display: flex;
+  justify-content: flex-end;
+  gap: 8px;
+  margin-top: 12px;
+}
+
+/* ---------- Capture modal (comment / substitute) ---------- */
+
+.tc-capture-modal .tc-capture-hint {
+  color: var(--text-muted);
+  font-size: var(--font-ui-smaller);
+  margin: 0 0 8px;
+}
+.tc-capture-modal .tc-capture-original {
+  margin: 0 0 8px;
+}
+.tc-capture-modal .tc-capture-input {
+  width: 100%;
+  resize: vertical;
+}
+.tc-capture-modal .tc-capture-buttons {
   display: flex;
   justify-content: flex-end;
   gap: 8px;
