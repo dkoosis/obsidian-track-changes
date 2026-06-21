@@ -429,15 +429,19 @@ export class ReviewPanelView extends ItemView {
       // user's typed reply.
       const draftText = this.replyDrafts.get(thread.from);
       this.replyDrafts.delete(thread.from);
+      // Only restore if the slot is still empty: on the async vault.process
+      // path the user may keep typing during the await, and the input handler
+      // records that newer draft — don't clobber it with the pre-submit text.
+      const restoreDraft = (): void => {
+        if (draftText !== undefined && !this.replyDrafts.has(thread.from)) {
+          this.replyDrafts.set(thread.from, draftText);
+        }
+      };
       try {
         const ok = await this.host.applyEdits(file, [edit]);
-        if (!ok && draftText !== undefined) {
-          this.replyDrafts.set(thread.from, draftText);
-        }
+        if (!ok) restoreDraft();
       } catch (err) {
-        if (draftText !== undefined) {
-          this.replyDrafts.set(thread.from, draftText);
-        }
+        restoreDraft();
         throw err;
       }
     };
