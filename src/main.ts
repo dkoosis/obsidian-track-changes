@@ -327,7 +327,10 @@ export default class TrackChangesCriticMarkupPlugin extends Plugin {
     const active = this.suggestMode.toggle(file.path, this.currentTextFor(file));
     new Notice(active ? "Suggesting mode on." : "Suggesting mode off.");
     this.refreshSuggestUI();
-    this.getReviewView()?.refreshFromSource(file, this.currentTextFor(file));
+    // Force a rebuild: toggling mode leaves the document text unchanged, so a
+    // plain source-refresh short-circuits and the header toggle never repaints.
+    // Covers the ribbon/command paths too, not just the panel button's onclick.
+    this.getReviewView()?.rebuildCards();
     return active;
   }
 

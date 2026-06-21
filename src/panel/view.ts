@@ -354,7 +354,9 @@ export class ReviewPanelView extends ItemView {
     });
     btn.onclick = () => {
       this.host.toggleSuggesting(file);
-      this.refresh();
+      // Force: toggling mode doesn't change the document, so the default
+      // unchanged-source short-circuit in refresh() would skip the repaint.
+      void this.refresh(undefined, true);
     };
   }
 
