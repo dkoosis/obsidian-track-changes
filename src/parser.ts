@@ -180,6 +180,21 @@ function rangeEndpointInCode(from: number, to: number, regions: Array<[number, n
   return endpointInRegion(from, regions) || endpointInRegion(to - 1, regions);
 }
 
+/**
+ * True if wrapping `[from, to)` in CriticMarkup would place a delimiter inside a
+ * Markdown code region — in which case the parser (which skips code) would drop
+ * the resulting mark, leaving dead markup in a code sample. Authoring commands
+ * call this to refuse such selections. A collapsed cursor (`from === to`, the
+ * point-comment case) tests the single insertion offset. Mirrors the parser's
+ * own skip rule, so a selection that merely *contains* an inline-code span — but
+ * whose endpoints sit in prose — is still allowed (issue #8).
+ */
+export function selectionInCode(source: string, from: number, to: number): boolean {
+  const regions = findCodeRegions(source);
+  if (from === to) return endpointInRegion(from, regions);
+  return rangeEndpointInCode(from, to, regions);
+}
+
 export interface ParseOptions {
   /** Skip markup that falls inside fenced code blocks or inline code spans. Defaults to true. */
   skipCode?: boolean;
