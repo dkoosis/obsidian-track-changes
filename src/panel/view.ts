@@ -57,7 +57,10 @@ export const REVIEW_VIEW_TYPE = "tc-review-panel";
  * rare genuine reject (vault I/O, overlap throw) so it isn't swallowed.
  */
 function runEdit(p: Promise<unknown>): void {
-  void p.catch(() => new Notice("Couldn't apply the change."));
+  void p.catch((err) => {
+    console.error("[Track Changes] Failed to apply edit:", err);
+    new Notice("Couldn't apply the change.");
+  });
 }
 
 export interface PanelHost {
@@ -419,10 +422,24 @@ export class ReviewPanelView extends ItemView {
         return;
       }
       const edit = appendReply(this.currentSource, thread, parsed, text);
-      // Drop the draft only once the write lands. A reject (vault I/O,
-      // overlap throw) would otherwise discard the user's typed reply.
-      const ok = await this.host.applyEdits(file, [edit]);
-      if (ok) this.replyDrafts.delete(thread.from);
+      // Drop the draft up front so the synchronous refreshFromSource (which
+      // applyEdits fires while still awaiting) rebuilds an empty reply box
+      // rather than re-seeding it with the just-submitted text. Restore on
+      // any failure so a reject (vault I/O, overlap throw) can't discard the
+      // user's typed reply.
+      const draftText = this.replyDrafts.get(thread.from);
+      this.replyDrafts.delete(thread.from);
+      try {
+        const ok = await this.host.applyEdits(file, [edit]);
+        if (!ok && draftText !== undefined) {
+          this.replyDrafts.set(thread.from, draftText);
+        }
+      } catch (err) {
+        if (draftText !== undefined) {
+          this.replyDrafts.set(thread.from, draftText);
+        }
+        throw err;
+      }
     };
     const actions = reply.createDiv({ cls: "tc-reply-actions" });
     const submitBtn = actions.createEl("button", { cls: "tc-btn-primary", text: "Reply" });
