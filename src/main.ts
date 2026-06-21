@@ -25,7 +25,7 @@ import {
   validateDeletionContent,
   type SourceEdit,
 } from "./operations";
-import { parse } from "./parser";
+import { parse, selectionInCode } from "./parser";
 import { makeReadingPostProcessor } from "./reading";
 import { FinalizeModal } from "./finalize";
 import { AuthorCaptureModal } from "./capture-modal";
@@ -80,6 +80,9 @@ export default class TrackChangesCriticMarkupPlugin extends Plugin {
         // across a node would nest markup the parser's dedup silently drops.
         // Re-checked on BOTH the show (checking=true) and act runs.
         if (selectionOverlapsNodes(parse(source).nodes, from, to)) return false;
+        // Refuse selections inside code — the parser skips code, so the wrapped
+        // deletion would be dropped, leaving dead markup in the sample (otc-402).
+        if (selectionInCode(source, from, to)) return false;
         if (checking) return true;
         const selected = source.slice(from, to);
         // Refuse a selection carrying the deletion closer --}; wrapping it would
@@ -109,6 +112,14 @@ export default class TrackChangesCriticMarkupPlugin extends Plugin {
         const from = editor.posToOffset(editor.getCursor("from"));
         const to = editor.posToOffset(editor.getCursor("to"));
         const selected = source.slice(from, to);
+        // Refuse anything landing in code — the parser skips code, so both the
+        // span-anchored highlight+comment and a bare point-comment would be
+        // dropped, leaving dead markup in the sample (otc-402). Comment normally
+        // never refuses, but in-code has no valid degraded form, so Notice out.
+        if (selectionInCode(source, from, to)) {
+          new Notice("Cannot comment inside a code block.");
+          return true;
+        }
         // Only a clean selection takes the span-anchored {==…==} path; a
         // collapsed cursor or a mark-intersecting selection degrades to a bare
         // {>>…<<} that doesn't wrap the selection. So the highlight-content
@@ -150,6 +161,9 @@ export default class TrackChangesCriticMarkupPlugin extends Plugin {
         // Destructive: refuse if the selection touches an existing mark.
         // Re-checked on both the show and the act runs.
         if (selectionOverlapsNodes(parse(source).nodes, from, to)) return false;
+        // Refuse selections inside code — wrapped markup would be dropped by the
+        // parser, leaving dead markup in the sample (otc-402).
+        if (selectionInCode(source, from, to)) return false;
         if (checking) return true;
         const selected = source.slice(from, to);
         new AuthorCaptureModal(

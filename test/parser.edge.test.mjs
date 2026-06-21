@@ -16,7 +16,7 @@ const out = await build({
 });
 const code = out.outputFiles[0].text;
 const mod = await import("data:text/javascript;base64," + Buffer.from(code).toString("base64"));
-const { parse, threadAtOffset, nodeAtOffset, contextSnippet } = mod;
+const { parse, threadAtOffset, nodeAtOffset, contextSnippet, selectionInCode } = mod;
 
 function test(name, fn) {
   try {
@@ -311,6 +311,48 @@ test("fenced block: closing fence indented by 4 spaces does not close the block"
   const r = parse(src);
   assert.equal(r.nodes.length, 1, "markup inside a block with a 4-space-indented fence must be ignored");
   assert.equal(r.nodes[0].text, "keep");
+});
+
+// --- selectionInCode: authoring-command guard (otc-402) ---
+test("selectionInCode: selection wholly inside a fenced block => true", () => {
+  const src = "before\n```\nlet x = 1\n```\nafter";
+  const from = src.indexOf("let x");
+  assert.equal(selectionInCode(src, from, from + "let x".length), true);
+});
+
+test("selectionInCode: selection inside an inline-code span => true", () => {
+  const src = "use the `foo bar` helper";
+  const from = src.indexOf("foo");
+  assert.equal(selectionInCode(src, from, from + "foo".length), true);
+});
+
+test("selectionInCode: selection in plain prose => false", () => {
+  const src = "just some ordinary prose here";
+  const from = src.indexOf("ordinary");
+  assert.equal(selectionInCode(src, from, from + "ordinary".length), false);
+});
+
+test("selectionInCode: prose selection that merely spans an inline-code span => false (#8)", () => {
+  // Endpoints sit in prose; the parser supports wrapping markup across an inline
+  // span, so the guard must not refuse it.
+  const src = "the function foo is good";
+  const src2 = "the function `foo` is good";
+  const from = src2.indexOf("function");
+  const to = src2.indexOf("good") + "good".length;
+  assert.equal(selectionInCode(src2, from, to), false);
+  void src;
+});
+
+test("selectionInCode: collapsed cursor inside a fence => true", () => {
+  const src = "x\n```\ncode line\n```\ny";
+  const at = src.indexOf("code line") + 2;
+  assert.equal(selectionInCode(src, at, at), true);
+});
+
+test("selectionInCode: collapsed cursor in prose => false", () => {
+  const src = "plain paragraph text";
+  const at = 5;
+  assert.equal(selectionInCode(src, at, at), false);
 });
 
 console.log("done.");
