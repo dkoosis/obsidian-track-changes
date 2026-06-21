@@ -185,6 +185,28 @@
   font-size: 0.85em;
 }
 
+/* Suggesting-mode toggle in the panel header (cm-1.2). Icon + text per R-UX-1. */
+.tc-suggest-toggle {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  margin: 6px 0;
+  padding: 2px 8px;
+  font-size: 0.85em;
+  cursor: pointer;
+}
+.tc-suggest-toggle .tc-suggest-toggle-icon {
+  display: inline-flex;
+}
+.tc-suggest-toggle.is-active {
+  color: var(--text-on-accent);
+  background-color: var(--interactive-accent);
+}
+.status-bar-item.tc-suggesting-active {
+  color: var(--interactive-accent);
+  font-weight: 600;
+}
+
 .tc-card-list {
   display: flex;
   flex-direction: column;

@@ -100,6 +100,13 @@ export interface PanelHost {
    * setting so the panel reflects changes made while it is open.
    */
   highlightChangedChars(): boolean;
+  /** True if `file` is currently in suggesting mode (cm-1.2). */
+  isSuggesting(file: TFile): boolean;
+  /**
+   * Toggle suggesting mode for `file`; returns the new state. Entering
+   * snapshots the file's current text as the diff baseline (R-SUG-1).
+   */
+  toggleSuggesting(file: TFile): boolean;
 }
 
 export class ReviewPanelView extends ItemView {
@@ -307,6 +314,7 @@ export class ReviewPanelView extends ItemView {
   private renderHeader(file: TFile, parsed: ParseResult, pairedHighlights = 0): void {
     const header = this.contentEl.createDiv({ cls: "tc-header" });
     header.createEl("div", { cls: "tc-header-title", text: file.basename });
+    this.renderSuggestToggle(header, file);
     const counts = {
       threads: parsed.threads.length,
       suggestions: parsed.nodes.filter(
@@ -324,6 +332,30 @@ export class ReviewPanelView extends ItemView {
       parts.push(`${counts.highlights} ${counts.highlights === 1 ? "highlight" : "highlights"}`);
     }
     header.createEl("div", { cls: "tc-header-counts", text: parts.join(" · ") });
+  }
+
+  /**
+   * Suggesting-mode toggle (R-ENTRY-3 / cm-1.2). Lives in the panel header
+   * because Obsidian's mode switch is Edit/Reading only — there is no slot for a
+   * third "Suggesting" state (Decision U, platform gap 1). Icon + text per
+   * R-UX-1; the active state is reflected by the `is-active` class + label.
+   */
+  private renderSuggestToggle(header: HTMLElement, file: TFile): void {
+    const active = this.host.isSuggesting(file);
+    const btn = header.createEl("button", {
+      cls: "tc-suggest-toggle",
+      attr: { "aria-pressed": String(active), title: "Toggle suggesting mode" },
+    });
+    btn.toggleClass("is-active", active);
+    setIcon(btn.createSpan({ cls: "tc-suggest-toggle-icon" }), "pencil");
+    btn.createSpan({
+      cls: "tc-suggest-toggle-label",
+      text: active ? "Suggesting: On" : "Suggesting: Off",
+    });
+    btn.onclick = () => {
+      this.host.toggleSuggesting(file);
+      this.refresh();
+    };
   }
 
   private renderThreadCard(

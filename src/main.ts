@@ -26,6 +26,7 @@ import {
   type SourceEdit,
 } from "./operations";
 import { parse, selectionInCode } from "./parser";
+import { SuggestModeState } from "./suggest-mode";
 import { makeReadingPostProcessor } from "./reading";
 import { FinalizeModal } from "./finalize";
 import { AuthorCaptureModal } from "./capture-modal";
@@ -42,6 +43,13 @@ export default class TrackChangesCriticMarkupPlugin extends Plugin {
   // rebuild via workspace.updateOptions() (the field is otherwise only rebuilt
   // on doc changes).
   private editorExtensions: Extension[] = [];
+
+  // Per-file suggesting-mode state (cm-1.2). The diff overlay (cm-1.3) and
+  // commit-materialize (cm-1.4) read its baseline; here it only drives the
+  // toggle + the status-bar/ribbon mirror.
+  private suggestMode = new SuggestModeState();
+  private suggestStatusEl: HTMLElement | null = null;
+  private suggestRibbonEl: HTMLElement | null = null;
 
   async onload(): Promise<void> {
     await this.loadSettings();
@@ -186,6 +194,16 @@ export default class TrackChangesCriticMarkupPlugin extends Plugin {
       },
     });
     this.addCommand({
+      id: "toggle-suggesting-mode",
+      name: "Toggle suggesting mode",
+      checkCallback: (checking) => {
+        const file = this.app.workspace.getActiveFile();
+        if (!file || file.extension !== "md") return false;
+        if (!checking) this.toggleSuggestMode(file);
+        return true;
+      },
+    });
+    this.addCommand({
       id: "finalize-for-publish",
       name: "Finalize for publish",
       checkCallback: (checking) => {
@@ -200,19 +218,35 @@ export default class TrackChangesCriticMarkupPlugin extends Plugin {
     this.addRibbonIcon("message-square", "Open CriticMarkup review panel", () =>
       this.openReviewPanel(),
     );
+    // Ribbon mirror of suggesting-mode state for the active file (R-ENTRY-3).
+    this.suggestRibbonEl = this.addRibbonIcon("pencil", "Toggle suggesting mode", () => {
+      const file = this.app.workspace.getActiveFile();
+      if (file && file.extension === "md") this.toggleSuggestMode(file);
+      else new Notice("Open a markdown note to suggest edits.");
+    });
+
+    // Status-bar mirror of suggesting-mode state for the active file.
+    this.suggestStatusEl = this.addStatusBarItem();
 
     // Settings tab.
     this.addSettingTab(new TrackChangesCriticMarkupSettingsTab(this.app, this));
 
+    // Keep the status-bar / ribbon mirror in sync with whichever file is active.
+    this.registerEvent(
+      this.app.workspace.on("active-leaf-change", () => this.refreshSuggestUI()),
+    );
+
     // Open panel automatically after layout is ready, if not already.
     this.app.workspace.onLayoutReady(() => {
       // Don't force-open on first run; user can use the ribbon/command.
+      this.refreshSuggestUI();
     });
   }
 
   onunload(): void {
     // Leaves of our view type are detached automatically when their root is.
     // (Obsidian guidance: do NOT call detachLeavesOfType in onunload.)
+    this.suggestMode.clear();
   }
 
   async loadSettings(): Promise<void> {
@@ -275,8 +309,45 @@ export default class TrackChangesCriticMarkupPlugin extends Plugin {
       isFileOpen: (file) => this.findEditorForFile(file) !== null,
       confirmBeforeDelete: () => this.settings.confirmBeforeDelete,
       highlightChangedChars: () => this.settings.highlightChangedChars,
+      isSuggesting: (file) => this.suggestMode.isActive(file.path),
+      toggleSuggesting: (file) => this.toggleSuggestMode(file),
     };
     return new ReviewPanelView(leaf, host);
+  }
+
+  // ---- suggesting mode (cm-1.2) ----
+
+  /**
+   * Toggle suggesting mode for `file`. Entering snapshots the file's current
+   * text as the diff baseline (R-SUG-1); the user then edits ordinary plain
+   * text (no transaction interception — N2). The overlay (cm-1.3) and commit
+   * (cm-1.4) build on this baseline. Returns the new active state.
+   */
+  private toggleSuggestMode(file: TFile): boolean {
+    const active = this.suggestMode.toggle(file.path, this.currentTextFor(file));
+    new Notice(active ? "Suggesting mode on." : "Suggesting mode off.");
+    this.refreshSuggestUI();
+    this.getReviewView()?.refreshFromSource(file, this.currentTextFor(file));
+    return active;
+  }
+
+  /** Current editor text for a file (live CM6 doc preferred), or "" if unopened. */
+  private currentTextFor(file: TFile): string {
+    const editor = this.findEditorForFile(file);
+    if (!editor) return "";
+    const cm = (editor as unknown as { cm?: EditorView }).cm;
+    return cm ? cm.state.doc.toString() : editor.getValue();
+  }
+
+  /** Repaint the status-bar + ribbon mirror to the active file's mode. */
+  private refreshSuggestUI(): void {
+    const file = this.app.workspace.getActiveFile();
+    const active = !!file && file.extension === "md" && this.suggestMode.isActive(file.path);
+    if (this.suggestStatusEl) {
+      this.suggestStatusEl.setText(active ? "✎ Suggesting" : "");
+      this.suggestStatusEl.toggleClass("tc-suggesting-active", active);
+    }
+    this.suggestRibbonEl?.toggleClass("is-active", active);
   }
 
   private async openReviewPanel(): Promise<void> {
