@@ -51,6 +51,84 @@ export function selectionOverlapsNodes(nodes: CriticNode[], s: number, e: number
   return nodes.some((n) => s < n.to && n.from < e);
 }
 
+/**
+ * Wrap a selection as a highlight + comment pair (a span-anchored comment):
+ * `[from,to)` -> `{==selected==}{>>body<<}`. The `body` is the author's text;
+ * the caller prepends any `Name:` prefix. `expected` anchors the selected span.
+ */
+export function commentOnSelection(
+  from: number,
+  to: number,
+  selected: string,
+  body: string,
+): SourceEdit {
+  return { from, to, insert: `{==${selected}==}{>>${body}<<}`, expected: selected };
+}
+
+/**
+ * Insert a bare comment at a point (collapsed selection, or the snap-out target
+ * when a selection intersects a mark — E2/E10). Zero-width insertion, so it
+ * carries no `expected`; the `before` anchor (Decision B — see `beforeAnchor`)
+ * lets `rebaseEdit` relocate it if the doc drifts.
+ */
+export function commentAtPoint(at: number, body: string, before: string): SourceEdit {
+  return { from: at, to: at, insert: `{>>${body}<<}`, expected: "", before };
+}
+
+/**
+ * Wrap a selection as a substitution: `[from,to)` -> `{~~oldText~>newText~~}`.
+ * Validate both sides with `validateSubstitution` first. `expected` anchors the
+ * old span.
+ */
+export function substituteSelection(
+  from: number,
+  to: number,
+  oldText: string,
+  newText: string,
+): SourceEdit {
+  return { from, to, insert: `{~~${oldText}~>${newText}~~}`, expected: oldText };
+}
+
+/**
+ * Reject a substitution whose old or new side carries substitution markup
+ * (`~~`, `~>`, or the `~~}` closer) — it would break the delimiter grammar and
+ * the parser would mis-slice the node. Returns an error message or null.
+ */
+export function validateSubstitution(oldText: string, newText: string): string | null {
+  const bad = /~~|~>/;
+  if (bad.test(oldText)) return "Selection contains substitution markup.";
+  if (bad.test(newText)) return "Replacement contains substitution markup.";
+  return null;
+}
+
+/**
+ * Decision B: the `before` anchor for a bare-comment insertion. Line-start to
+ * cursor, extended back to <=40 preceding chars when the line prefix is shorter
+ * than 8 — so a short prefix (e.g. start of a list item) still anchors uniquely
+ * within the +-200 rebase window.
+ */
+const BEFORE_MIN = 8;
+const BEFORE_MAX = 40;
+
+export function beforeAnchor(source: string, at: number): string {
+  const lineStart = source.lastIndexOf("\n", at - 1) + 1;
+  const linePrefix = source.slice(lineStart, at);
+  if (linePrefix.length >= BEFORE_MIN) return linePrefix;
+  return source.slice(Math.max(0, at - BEFORE_MAX), at);
+}
+
+/**
+ * Snap-out target for a comment whose selection intersects existing marks
+ * (E2/E10): the `to` offset just past the last intersecting node, where a bare
+ * comment can sit without nesting inside markup the parser's dedup would drop.
+ * Returns null when nothing intersects (caller uses `commentOnSelection`).
+ */
+export function snapOutOffset(nodes: CriticNode[], s: number, e: number): number | null {
+  const hit = nodes.filter((n) => s < n.to && n.from < e);
+  if (hit.length === 0) return null;
+  return Math.max(...hit.map((n) => n.to));
+}
+
 /** Apply a list of edits to a source string. Edits must be non-overlapping. */
 export function applyEdits(source: string, edits: SourceEdit[]): string {
   const sorted = [...edits].sort((a, b) => b.from - a.from);

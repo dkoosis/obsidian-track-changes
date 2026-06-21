@@ -502,3 +502,24 @@
   gap: 8px;
   margin-top: 12px;
 }
+
+/* ---------- Capture modal (comment / substitute) ---------- */
+
+.tc-capture-modal .tc-capture-hint {
+  color: var(--text-muted);
+  font-size: var(--font-ui-smaller);
+  margin: 0 0 8px;
+}
+.tc-capture-modal .tc-capture-original {
+  margin: 0 0 8px;
+}
+.tc-capture-modal .tc-capture-input {
+  width: 100%;
+  resize: vertical;
+}
+.tc-capture-modal .tc-capture-buttons {
+  display: flex;
+  justify-content: flex-end;
+  gap: 8px;
+  margin-top: 12px;
+}
