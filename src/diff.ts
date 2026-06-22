@@ -207,16 +207,25 @@ function pushLcsOps(a: string[], b: string[], ops: DiffOp[]): void {
 }
 
 /**
- * Diff `baseline` against `current` and emit the CriticMarkup edits that, when
- * applied to `current`, materialize the change as `{++}` / `{--}` /
- * `{~~old~>new~~}`. Edits are ordered and non-overlapping (change blocks are
- * separated by at least one unchanged token), each carrying `expected` (and
- * `before` for the point-insertion that represents a deletion) so they survive
- * `rebaseEdit`. Identical inputs yield `[]`.
+ * A maximal changed region between `baseline` and `current`: the removed
+ * baseline text (`old`), the inserted current text (`new`), and `from` — the
+ * offset into `current` where the block begins. Blocks are ordered and
+ * separated by ≥1 unchanged token. `old==="" ` → pure insert; `new===""` →
+ * pure deletion (zero-width in `current`); both set → substitution.
+ *
+ * The single segmentation both `diffToEdits` (materialize) and `diffToOverlay`
+ * (render) consume — so the overlay can never show a split the commit wouldn't
+ * produce.
  */
-export function diffToEdits(baseline: string, current: string): SourceEdit[] {
+interface DiffBlock {
+  from: number;
+  old: string;
+  new: string;
+}
+
+function diffBlocks(baseline: string, current: string): DiffBlock[] {
   const ops = diffTokens(tokenize(baseline), tokenize(current));
-  const edits: SourceEdit[] = [];
+  const blocks: DiffBlock[] = [];
 
   let ci = 0; // offset into `current`
   let oldBuf = "";
@@ -226,31 +235,7 @@ export function diffToEdits(baseline: string, current: string): SourceEdit[] {
 
   const flush = () => {
     if (!inBlock) return;
-    if (oldBuf && newBuf) {
-      edits.push({
-        from: blockCi,
-        to: blockCi + newBuf.length,
-        insert: `{~~${oldBuf}~>${newBuf}~~}`,
-        expected: newBuf,
-      });
-    } else if (newBuf) {
-      edits.push({
-        from: blockCi,
-        to: blockCi + newBuf.length,
-        insert: `{++${newBuf}++}`,
-        expected: newBuf,
-      });
-    } else {
-      // Deletion: re-insert the removed text wrapped, at the point in `current`
-      // where it used to sit. Zero-width, so it anchors via `before`.
-      edits.push({
-        from: blockCi,
-        to: blockCi,
-        insert: `{--${oldBuf}--}`,
-        expected: "",
-        before: beforeAnchor(current, blockCi),
-      });
-    }
+    blocks.push({ from: blockCi, old: oldBuf, new: newBuf });
     oldBuf = "";
     newBuf = "";
     inBlock = false;
@@ -275,5 +260,76 @@ export function diffToEdits(baseline: string, current: string): SourceEdit[] {
   }
   flush();
 
+  return blocks;
+}
+
+/**
+ * Diff `baseline` against `current` and emit the CriticMarkup edits that, when
+ * applied to `current`, materialize the change as `{++}` / `{--}` /
+ * `{~~old~>new~~}`. Edits are ordered and non-overlapping (change blocks are
+ * separated by at least one unchanged token), each carrying `expected` (and
+ * `before` for the point-insertion that represents a deletion) so they survive
+ * `rebaseEdit`. Identical inputs yield `[]`.
+ */
+export function diffToEdits(baseline: string, current: string): SourceEdit[] {
+  const edits: SourceEdit[] = [];
+  for (const b of diffBlocks(baseline, current)) {
+    if (b.old && b.new) {
+      edits.push({
+        from: b.from,
+        to: b.from + b.new.length,
+        insert: `{~~${b.old}~>${b.new}~~}`,
+        expected: b.new,
+      });
+    } else if (b.new) {
+      edits.push({
+        from: b.from,
+        to: b.from + b.new.length,
+        insert: `{++${b.new}++}`,
+        expected: b.new,
+      });
+    } else {
+      // Deletion: re-insert the removed text wrapped, at the point in `current`
+      // where it used to sit. Zero-width, so it anchors via `before`.
+      edits.push({
+        from: b.from,
+        to: b.from,
+        insert: `{--${b.old}--}`,
+        expected: "",
+        before: beforeAnchor(current, b.from),
+      });
+    }
+  }
   return edits;
+}
+
+/** A render-shaped diff op against `current` offsets, for the live overlay. */
+export interface OverlayOp {
+  /** `ins` styles inserted text in-place; `del` is a zero-width phantom. */
+  kind: "ins" | "del";
+  /** Offset into `current`. For `del` this is a point (`to === from`). */
+  from: number;
+  to: number;
+  /** `ins`: the inserted text (informational). `del`: the removed baseline text. */
+  text: string;
+}
+
+/**
+ * Diff `baseline` against `current` for the live overlay (cm-1.3): inserted
+ * spans as in-place `ins` ops, deletions as zero-width `del` points carrying
+ * the removed text (rendered as a phantom widget — never in the buffer). A
+ * substitution emits both: a `del` point at the block start plus an `ins` span
+ * over the new text. Ops are ordered by `from`; for a substitution the `del`
+ * point shares the `ins` span's start. Identical inputs yield `[]`.
+ *
+ * Shares `diffBlocks` with `diffToEdits`, so the overlay and the commit always
+ * agree on where the changes are.
+ */
+export function diffToOverlay(baseline: string, current: string): OverlayOp[] {
+  const ops: OverlayOp[] = [];
+  for (const b of diffBlocks(baseline, current)) {
+    if (b.old) ops.push({ kind: "del", from: b.from, to: b.from, text: b.old });
+    if (b.new) ops.push({ kind: "ins", from: b.from, to: b.from + b.new.length, text: b.new });
+  }
+  return ops;
 }
