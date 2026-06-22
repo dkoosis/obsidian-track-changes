@@ -106,7 +106,7 @@ export interface PanelHost {
    * Toggle suggesting mode for `file`; returns the new state. Entering
    * snapshots the file's current text as the diff baseline (R-SUG-1).
    */
-  toggleSuggesting(file: TFile): boolean;
+  toggleSuggesting(file: TFile): Promise<boolean>;
 }
 
 export class ReviewPanelView extends ItemView {
@@ -352,8 +352,10 @@ export class ReviewPanelView extends ItemView {
       cls: "tc-suggest-toggle-label",
       text: active ? "Suggesting: On" : "Suggesting: Off",
     });
-    btn.onclick = () => {
-      this.host.toggleSuggesting(file);
+    btn.onclick = async () => {
+      // Await the toggle: exiting suggesting mode materializes the diff
+      // (cm-1.4), and the panel must repaint against the post-commit document.
+      await this.host.toggleSuggesting(file);
       // Force: toggling mode doesn't change the document, so the default
       // unchanged-source short-circuit in refresh() would skip the repaint.
       void this.refresh(undefined, true);

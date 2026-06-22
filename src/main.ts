@@ -26,6 +26,7 @@ import {
   type SourceEdit,
 } from "./operations";
 import { parse, selectionInCode } from "./parser";
+import { diffToEdits } from "./diff";
 import { SuggestModeState } from "./suggest-mode";
 import { makeReadingPostProcessor } from "./reading";
 import { FinalizeModal } from "./finalize";
@@ -199,7 +200,7 @@ export default class TrackChangesCriticMarkupPlugin extends Plugin {
       checkCallback: (checking) => {
         const file = this.app.workspace.getActiveFile();
         if (!file || file.extension !== "md") return false;
-        if (!checking) this.toggleSuggestMode(file);
+        if (!checking) void this.toggleSuggestMode(file);
         return true;
       },
     });
@@ -221,7 +222,7 @@ export default class TrackChangesCriticMarkupPlugin extends Plugin {
     // Ribbon mirror of suggesting-mode state for the active file (R-ENTRY-3).
     this.suggestRibbonEl = this.addRibbonIcon("pencil", "Toggle suggesting mode", () => {
       const file = this.app.workspace.getActiveFile();
-      if (file && file.extension === "md") this.toggleSuggestMode(file);
+      if (file && file.extension === "md") void this.toggleSuggestMode(file);
       else new Notice("Open a markdown note to suggest edits.");
     });
 
@@ -323,15 +324,51 @@ export default class TrackChangesCriticMarkupPlugin extends Plugin {
    * text (no transaction interception — N2). The overlay (cm-1.3) and commit
    * (cm-1.4) build on this baseline. Returns the new active state.
    */
-  private toggleSuggestMode(file: TFile): boolean {
-    const active = this.suggestMode.toggle(file.path, this.currentTextFor(file));
-    new Notice(active ? "Suggesting mode on." : "Suggesting mode off.");
+  private async toggleSuggestMode(file: TFile): Promise<boolean> {
+    if (this.suggestMode.isActive(file.path)) {
+      // Exit is the commit trigger (cm-1.4, v1 exit-only): materialize the
+      // baseline→current diff as CriticMarkup before clearing the mode. If the
+      // write is rejected we stay in mode so the user can retry (the
+      // applyEditsToFile path already surfaced a Notice).
+      const committed = await this.commitSuggestions(file);
+      if (!committed) {
+        this.refreshSuggestUI();
+        this.getReviewView()?.rebuildCards();
+        return true;
+      }
+      this.suggestMode.exit(file.path);
+      new Notice("Suggesting mode off.");
+    } else {
+      this.suggestMode.enter(file.path, this.currentTextFor(file));
+      new Notice("Suggesting mode on.");
+    }
     this.refreshSuggestUI();
     // Force a rebuild: toggling mode leaves the document text unchanged, so a
     // plain source-refresh short-circuits and the header toggle never repaints.
     // Covers the ribbon/command paths too, not just the panel button's onclick.
     this.getReviewView()?.rebuildCards();
-    return active;
+    return this.suggestMode.isActive(file.path);
+  }
+
+  /**
+   * cm-1.4 / R-SUG-4: diff the suggesting-mode baseline against the current
+   * editor text and write the difference as CriticMarkup via the normal edit
+   * path (so it coalesces into one undo). Returns false only when the write was
+   * rejected — the caller then keeps the file in suggesting mode for a retry.
+   */
+  private async commitSuggestions(file: TFile): Promise<boolean> {
+    const baseline = this.suggestMode.baselineFor(file.path);
+    if (baseline === null) return true; // not in mode — nothing to materialize
+    // Need a live editor to read `current`; without one currentTextFor returns
+    // "" and the diff would delete the whole file. Skip + warn, leave mode as-is.
+    if (!this.findEditorForFile(file)) {
+      new Notice("Open the file to commit its suggestions.");
+      return false;
+    }
+    const current = this.currentTextFor(file);
+    const edits = diffToEdits(baseline, current);
+    if (edits.length === 0) return true; // no change — clean exit, no write
+    return this.applyEditsToFile(file, edits, { requireAll: true });
   }
 
   /** Current editor text for a file (live CM6 doc preferred), or "" if unopened. */
