@@ -137,6 +137,15 @@ test("multi-region: two separate changed runs each side (LCS keeps shared middle
   assert.ok(d.newRuns.some((r) => !r.changed && r.text === " sat on the "));
 });
 
+test("no shared edge: whole-word swap renders solid, no scatter-match", () => {
+  // Context/Reason share neither prefix (C/R) nor suffix (t/n). LCS would dim the
+  // stray common "on"; with no shared edge we render solid red->green instead.
+  const d = diffChars("Context", "Reason");
+  checkInvariants(d, "Context", "Reason");
+  assert.deepEqual(d.oldRuns, [{ text: "Context", changed: true }]);
+  assert.deepEqual(d.newRuns, [{ text: "Reason", changed: true }]);
+});
+
 test("identical inputs => one unchanged run each side", () => {
   const d = diffChars("same", "same");
   checkInvariants(d, "same", "same");
