@@ -10,6 +10,11 @@ import { EditorView } from "@codemirror/view";
 import type { Extension } from "@codemirror/state";
 
 import { criticDecorationsExtension } from "./editor/decorations";
+import {
+  suggestOverlayExtension,
+  setSuggestBaseline,
+  clearSuggestBaseline,
+} from "./editor/suggest-overlay";
 import { REVIEW_VIEW_TYPE, ReviewPanelView, type PanelHost } from "./panel/view";
 import {
   applyEdits,
@@ -58,8 +63,11 @@ export default class TrackChangesCriticMarkupPlugin extends Plugin {
     // Right-panel view registration.
     this.registerView(REVIEW_VIEW_TYPE, (leaf) => this.makeReviewView(leaf));
 
-    // CodeMirror 6 inline decorations.
+    // CodeMirror 6 inline decorations + the suggesting-mode diff overlay
+    // (cm-1.3). The overlay is a separate, baseline-effect-driven field; it
+    // stays dormant (null baseline) until a file enters suggesting mode.
     this.editorExtensions.push(this.makeDecorationExtension());
+    this.editorExtensions.push(suggestOverlayExtension());
     this.registerEditorExtension(this.editorExtensions);
 
     // Reading-mode post-processor.
@@ -232,9 +240,22 @@ export default class TrackChangesCriticMarkupPlugin extends Plugin {
     // Settings tab.
     this.addSettingTab(new TrackChangesCriticMarkupSettingsTab(this.app, this));
 
-    // Keep the status-bar / ribbon mirror in sync with whichever file is active.
+    // Keep the status-bar / ribbon mirror — and the per-view diff overlay
+    // (cm-1.3) — in sync with whichever file is active. Re-pushing the baseline
+    // here covers "toggled mode on, then opened the file in a new pane / via a
+    // file switch": the freshly-mounted view's overlay field starts null until
+    // this fires.
     this.registerEvent(
-      this.app.workspace.on("active-leaf-change", () => this.refreshSuggestUI()),
+      this.app.workspace.on("active-leaf-change", () => {
+        this.refreshSuggestUI();
+        const file = this.app.workspace.getActiveFile();
+        if (file && file.extension === "md") this.syncSuggestOverlay(file);
+      }),
+    );
+    this.registerEvent(
+      this.app.workspace.on("file-open", (file) => {
+        if (file && file.extension === "md") this.syncSuggestOverlay(file);
+      }),
     );
 
     // Open panel automatically after layout is ready, if not already.
@@ -285,7 +306,14 @@ export default class TrackChangesCriticMarkupPlugin extends Plugin {
   refreshCharHighlighting(): void {
     this.editorExtensions.length = 0;
     this.editorExtensions.push(this.makeDecorationExtension());
+    // Re-push the overlay too — the array is the registered extension list, so
+    // dropping it here would tear the suggesting-mode overlay out of every view.
+    this.editorExtensions.push(suggestOverlayExtension());
     this.app.workspace.updateOptions();
+    // updateOptions re-creates the per-view fields (baseline resets to null), so
+    // repaint the active file's overlay if it's mid-suggest.
+    const file = this.app.workspace.getActiveFile();
+    if (file && file.extension === "md") this.syncSuggestOverlay(file);
     this.getReviewView()?.rebuildCards();
   }
 
@@ -342,6 +370,9 @@ export default class TrackChangesCriticMarkupPlugin extends Plugin {
       this.suggestMode.enter(file.path, this.currentTextFor(file));
       new Notice("Suggesting mode on.");
     }
+    // Push (or clear) the baseline into the file's CM6 view so the live overlay
+    // (cm-1.3) lights up / goes dark in step with the mode.
+    this.syncSuggestOverlay(file);
     this.refreshSuggestUI();
     // Force a rebuild: toggling mode leaves the document text unchanged, so a
     // plain source-refresh short-circuits and the header toggle never repaints.
@@ -369,6 +400,25 @@ export default class TrackChangesCriticMarkupPlugin extends Plugin {
     const edits = diffToEdits(baseline, current);
     if (edits.length === 0) return true; // no change — clean exit, no write
     return this.applyEditsToFile(file, edits, { requireAll: true });
+  }
+
+  /**
+   * Push the file's suggesting-mode baseline into its live CM6 view (or clear
+   * it when the file isn't in mode). The overlay field is a per-view mirror —
+   * `main`/`SuggestModeState` is the source of truth — so this runs at every
+   * sync point: toggle, active-leaf-change, file-open. No live view → nothing
+   * to mirror; the field starts null when a view for the file later mounts and
+   * the next sync (leaf-change / file-open) repaints it.
+   */
+  private syncSuggestOverlay(file: TFile): void {
+    const editor = this.findEditorForFile(file);
+    const cm = editor ? (editor as unknown as { cm?: EditorView }).cm : undefined;
+    if (!cm) return;
+    const baseline = this.suggestMode.baselineFor(file.path);
+    cm.dispatch({
+      effects:
+        baseline === null ? clearSuggestBaseline.of(null) : setSuggestBaseline.of(baseline),
+    });
   }
 
   /** Current editor text for a file (live CM6 doc preferred), or "" if unopened. */

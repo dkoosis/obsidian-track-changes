@@ -160,6 +160,24 @@
   background: rgba(56, 161, 105, 0.30);
 }
 
+/* ---------- Suggesting-mode live overlay (cm-1.3) ---------- *
+ * Read-only diff layer painted while a file is in suggesting mode: inserted
+ * text tinted green in place; deleted text shown as a phantom (zero document
+ * length) struck-through in red. The phantom is decoration, never buffer —
+ * pointer-events:none + user-select:none keep the caret and clicks on the
+ * real adjacent character so traversal past the gap feels like one step. */
+.tc-suggest-ins {
+  background: rgba(56, 161, 105, 0.18);
+  border-bottom: 1px solid rgba(56, 161, 105, 0.55);
+}
+.tc-suggest-del {
+  background: rgba(220, 38, 38, 0.08);
+  color: var(--text-muted);
+  text-decoration: line-through;
+  pointer-events: none;
+  user-select: none;
+}
+
 /* ---------- Right panel ---------- */
 
 .tc-panel {
