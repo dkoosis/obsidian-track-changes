@@ -15,7 +15,15 @@
 // re-syncing on toggle and on active-leaf / file-open. The field here is a
 // passive per-view mirror.
 
-import { EditorView, Decoration, DecorationSet, WidgetType } from "@codemirror/view";
+import {
+  EditorView,
+  Decoration,
+  DecorationSet,
+  WidgetType,
+  ViewPlugin,
+  type PluginValue,
+  type ViewUpdate,
+} from "@codemirror/view";
 import { StateEffect, StateField, type EditorState, type Extension, type Range } from "@codemirror/state";
 
 import { diffToOverlay } from "../diff";
@@ -25,6 +33,18 @@ export const setSuggestBaseline = StateEffect.define<string>();
 
 /** Clear the baseline for this view; turns the overlay off. */
 export const clearSuggestBaseline = StateEffect.define<null>();
+
+/** Internal: a debounced request to re-diff baseline→doc and rebuild the overlay. */
+const recomputeOverlay = StateEffect.define<null>();
+
+/**
+ * Idle gap before a full re-diff fires. The diff is O(baseline×doc) word-LCS;
+ * recomputing it per keystroke is wasted work and scales with divergence from
+ * baseline, not edit size. Debouncing realises the §9 "WYSIWYG-per-pause"
+ * intent literally: positions stay live between pauses (cheap change-mapping),
+ * the re-segmentation lands once typing settles.
+ */
+const OVERLAY_DEBOUNCE_MS = 200;
 
 /** Per-view mirror of the suggesting-mode baseline (null → overlay off). */
 const suggestBaselineField = StateField.define<string | null>({
@@ -73,7 +93,11 @@ class PhantomDeletionWidget extends WidgetType {
 function buildOverlay(state: EditorState): DecorationSet {
   const baseline = state.field(suggestBaselineField);
   if (baseline === null) return Decoration.none;
-  const ops = diffToOverlay(baseline, state.doc.toString());
+  const current = state.doc.toString();
+  // Cheap equality gate before the O(n×m) diff: a doc typed back to baseline is
+  // the common "no pending change" state, and a string compare skips tokenizing.
+  if (current === baseline) return Decoration.none;
+  const ops = diffToOverlay(baseline, current);
   if (ops.length === 0) return Decoration.none;
 
   const ranges: Range<Decoration>[] = [];
@@ -102,16 +126,45 @@ export function suggestOverlayExtension(): Extension {
     update(deco, tr) {
       const baseline = tr.state.field(suggestBaselineField);
       const baselineChanged = tr.startState.field(suggestBaselineField) !== baseline;
-      // Recompute on any doc edit (word-level re-segmentation is the §9
-      // accepted fidelity caveat: WYSIWYG-per-pause, not per-keystroke) or when
-      // the baseline is pushed/cleared. Otherwise the cached set still maps 1:1.
-      if (tr.docChanged || baselineChanged) return buildOverlay(tr.state);
+      // Toggle (baseline push/clear) and the debounced recompute are deliberate
+      // re-segmentation points — diff now. A plain keystroke only maps the
+      // cached set through its changes so positions stay valid; the full re-diff
+      // is left to the debouncer (OverlayDebouncer), keeping the hot path cheap.
+      if (baselineChanged || tr.effects.some((e) => e.is(recomputeOverlay))) {
+        return buildOverlay(tr.state);
+      }
+      if (tr.docChanged) return deco.map(tr.changes);
       return deco;
     },
     provide: (f) => EditorView.decorations.from(f),
   });
 
+  // Per-view timer that coalesces a burst of keystrokes into one re-diff once
+  // typing settles. Lives on the view so popouts and splits each debounce
+  // independently; cleaned up in destroy().
+  const overlayDebouncer = ViewPlugin.fromClass(
+    class implements PluginValue {
+      private timer = -1;
+
+      constructor(private readonly view: EditorView) {}
+
+      update(u: ViewUpdate): void {
+        if (!u.docChanged) return;
+        if (u.state.field(suggestBaselineField) === null) return; // overlay off
+        if (this.timer !== -1) clearTimeout(this.timer);
+        this.timer = window.setTimeout(() => {
+          this.timer = -1;
+          this.view.dispatch({ effects: recomputeOverlay.of(null) });
+        }, OVERLAY_DEBOUNCE_MS);
+      }
+
+      destroy(): void {
+        if (this.timer !== -1) clearTimeout(this.timer);
+      }
+    },
+  );
+
   // baselineField must be ordered before overlayField so the overlay reads the
   // updated baseline within the same transaction.
-  return [suggestBaselineField, overlayField];
+  return [suggestBaselineField, overlayField, overlayDebouncer];
 }
