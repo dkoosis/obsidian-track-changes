@@ -329,7 +329,7 @@ export default class TrackChangesCriticMarkupPlugin extends Plugin {
       getCurrentSource: (file) => {
         const editor = this.findEditorForFile(file);
         if (!editor) return null;
-        const cm = (editor as unknown as { cm?: EditorView }).cm;
+        const cm = this.cmFor(editor);
         return cm ? cm.state.doc.toString() : editor.getValue();
       },
       applyEdits: (file, edits) => this.applyEditsToFile(file, edits),
@@ -419,7 +419,7 @@ export default class TrackChangesCriticMarkupPlugin extends Plugin {
     for (const leaf of this.app.workspace.getLeavesOfType("markdown")) {
       const view = leaf.view;
       if (view instanceof MarkdownView && view.file === file) {
-        const cm = (view.editor as unknown as { cm?: EditorView }).cm;
+        const cm = this.cmFor(view.editor);
         if (cm) cm.dispatch({ effects: effect });
       }
     }
@@ -429,7 +429,7 @@ export default class TrackChangesCriticMarkupPlugin extends Plugin {
   private currentTextFor(file: TFile): string {
     const editor = this.findEditorForFile(file);
     if (!editor) return "";
-    const cm = (editor as unknown as { cm?: EditorView }).cm;
+    const cm = this.cmFor(editor);
     return cm ? cm.state.doc.toString() : editor.getValue();
   }
 
@@ -514,10 +514,7 @@ export default class TrackChangesCriticMarkupPlugin extends Plugin {
   ): Promise<boolean> {
     if (edits.length === 0) return true;
     const editor = this.findEditorForFile(file);
-    // `editor.cm` is undocumented but stable across Obsidian releases; it
-    // exposes the underlying CM6 EditorView so our dispatch coalesces with
-    // the user's normal undo stack.
-    const cm = editor ? (editor as unknown as { cm?: EditorView }).cm : undefined;
+    const cm = this.cmFor(editor);
     const currentSource = cm ? cm.state.doc.toString() : editor ? editor.getValue() : null;
 
     // Rebase against the current doc so stale offsets (from a re-parse the
@@ -615,6 +612,14 @@ export default class TrackChangesCriticMarkupPlugin extends Plugin {
     return null;
   }
 
+  /**
+   * The undocumented-but-stable CM6 `EditorView` behind an Obsidian `Editor`.
+   * Dispatching through it coalesces our edits with the user's undo stack.
+   */
+  private cmFor(editor: Editor | null): EditorView | undefined {
+    return editor ? (editor as unknown as { cm?: EditorView }).cm : undefined;
+  }
+
   // ---- reveal/scroll ----
 
   private revealOffsetInEditor(
@@ -641,14 +646,13 @@ export default class TrackChangesCriticMarkupPlugin extends Plugin {
     length: number,
     flashChip: boolean,
   ): void {
-    // See applyEditsToFile for the rationale on accessing `editor.cm`.
     // By default we do NOT move the selection: placing the cursor inside a
     // CriticMarkup range causes Live Preview to unrender the decoration and
     // expose the raw `{>>…<<}` syntax. The `revealMarkupOnCommentJump` setting
     // lets users opt into that behavior — useful for those who want to edit
     // the markup source directly after jumping.
     const revealMarkup = flashChip && this.settings.revealMarkupOnCommentJump;
-    const cm = (editor as unknown as { cm?: EditorView }).cm;
+    const cm = this.cmFor(editor);
     if (cm) {
       cm.dispatch({
         selection: revealMarkup ? { anchor: offset, head: offset + length } : undefined,
