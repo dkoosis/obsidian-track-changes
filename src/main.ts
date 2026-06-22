@@ -33,7 +33,6 @@ import { diffToEdits } from "./diff";
 import { SuggestModeState } from "./suggest-mode";
 import { makeReadingPostProcessor } from "./reading";
 import { FinalizeModal } from "./finalize";
-import { AuthorCaptureModal } from "./capture-modal";
 import {
   DEFAULT_SETTINGS,
   TrackChangesCriticMarkupSettingsTab,
@@ -91,7 +90,7 @@ export default class TrackChangesCriticMarkupPlugin extends Plugin {
         const file = ctx.file;
         if (!file) return false;
         if (checking) return true;
-        this.commentOnSelectionFlow(editor, file);
+        void this.commentOnSelectionFlow(editor, file);
         return true;
       },
     });
@@ -163,7 +162,7 @@ export default class TrackChangesCriticMarkupPlugin extends Plugin {
           item
             .setTitle("Comment")
             .setIcon("message-square")
-            .onClick(() => this.commentOnSelectionFlow(editor, file)),
+            .onClick(() => void this.commentOnSelectionFlow(editor, file)),
         );
         const active = this.suggestMode.isActive(file.path);
         menu.addItem((item) =>
@@ -250,6 +249,8 @@ export default class TrackChangesCriticMarkupPlugin extends Plugin {
         return cm ? cm.state.doc.toString() : editor.getValue();
       },
       applyEdits: (file, edits) => this.applyEditsToFile(file, edits),
+      submitComment: (file, from, to, source, body) =>
+        this.applyCommentFromPanel(file, from, to, source, body),
       revealOffset: (file, offset, length, flashChip) =>
         this.revealOffsetInEditor(file, offset, length, flashChip ?? false),
       isFileOpen: (file) => this.findEditorForFile(file) !== null,
@@ -411,7 +412,7 @@ export default class TrackChangesCriticMarkupPlugin extends Plugin {
    * valid degraded form (otc-402): a collapsed cursor inserts a bare
    * point-comment; a selection intersecting a mark snaps out past it.
    */
-  private commentOnSelectionFlow(editor: Editor, file: TFile): void {
+  private async commentOnSelectionFlow(editor: Editor, file: TFile): Promise<void> {
     const source = editor.getValue();
     const from = editor.posToOffset(editor.getCursor("from"));
     const to = editor.posToOffset(editor.getCursor("to"));
@@ -431,20 +432,34 @@ export default class TrackChangesCriticMarkupPlugin extends Plugin {
         return;
       }
     }
-    new AuthorCaptureModal(
-      this.app,
-      file,
-      source,
-      "comment",
-      selected,
-      async ({ text, source: snapshot }) => {
-        const edit = this.buildCommentEdit(snapshot, from, to, text);
-        await this.applyEditsToFile(file, [edit], {
-          requireAll: true,
-          expectedSource: snapshot,
-        });
-      },
-    ).open();
+    // Capture into a focused panel card rather than a modal (cm-1.5). The body
+    // is typed into the panel; `source` rides along as the drift anchor.
+    await this.openReviewPanel();
+    const view = this.getReviewView();
+    if (!view) {
+      new Notice("Could not open review panel.");
+      return;
+    }
+    view.beginComment(file, from, to, source);
+  }
+
+  /**
+   * Materialize a comment composed in the panel (cm-1.5). Builds the anchor's
+   * edit (span-wrapped or snapped-out bare comment) and writes it with `source`
+   * as `expectedSource` so it survives drift via rebaseEdits.
+   */
+  private applyCommentFromPanel(
+    file: TFile,
+    from: number,
+    to: number,
+    source: string,
+    body: string,
+  ): Promise<boolean> {
+    const edit = this.buildCommentEdit(source, from, to, body);
+    return this.applyEditsToFile(file, [edit], {
+      requireAll: true,
+      expectedSource: source,
+    });
   }
 
   /**

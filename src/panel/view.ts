@@ -81,6 +81,20 @@ export interface PanelHost {
    */
   applyEdits(file: TFile, edits: SourceEdit[]): Promise<boolean>;
   /**
+   * Materialize a pending composer comment (cm-1.5). The host builds the right
+   * edit for the anchor — span-wrapped `{==sel==}{>>body<<}` for a clean
+   * selection, a snapped-out bare `{>>body<<}` otherwise — and writes it with
+   * `source` as `expectedSource`. Resolves `true` on write, `false` if rejected
+   * or dropped (the host has already shown a Notice).
+   */
+  submitComment(
+    file: TFile,
+    from: number,
+    to: number,
+    source: string,
+    body: string,
+  ): Promise<boolean>;
+  /**
    * Scroll the editor to a source offset. If `flashChip` is true, the target
    * is treated as a comment chip: the chip blinks briefly so it's easier to
    * spot after the scroll. The `revealMarkupOnCommentJump` setting controls
@@ -116,6 +130,16 @@ export class ReviewPanelView extends ItemView {
   private rerender = debounce(() => this.refresh(), 200, true);
   private replyDrafts = new Map<number, string>(); // thread.from -> draft text
   private collapsedCards = new Set<number>(); // card-offset values that are collapsed
+  // Pending author-initiated comment (cm-1.5). The anchor + draft body for a
+  // composer card shown at the top of the panel until submitted or cancelled.
+  // Replaces the old AuthorCaptureModal: the draft is transient UI state (never
+  // persisted), materialized to {==sel==}{>>body<<} only on submit.
+  private pendingComment:
+    | { from: number; to: number; source: string; selected: string; body: string }
+    | null = null;
+  // Focus the composer textarea on the next render after beginComment (once),
+  // not on every refresh — so a background repaint can't steal focus mid-type.
+  private focusComposer = false;
   // Bumped on every refresh() entry. Lets an in-flight refresh detect that a
   // newer one started while it was awaiting the file read, and bail before
   // touching the DOM — otherwise overlapping refreshes append duplicate cards.
@@ -179,6 +203,20 @@ export class ReviewPanelView extends ItemView {
     }
   }
 
+  /**
+   * Open a comment composer card for an author-initiated comment (cm-1.5).
+   * Called by the host after it reveals the panel. `from`/`to` are the selection
+   * offsets (equal for a collapsed cursor); `source` is the editor snapshot at
+   * invocation, handed back as `expectedSource` on submit so the write survives
+   * drift via rebaseEdits. The card renders at the top of the panel, focused.
+   */
+  beginComment(file: TFile, from: number, to: number, source: string): void {
+    this.currentFile = file;
+    this.pendingComment = { from, to, source, selected: source.slice(from, to), body: "" };
+    this.focusComposer = true;
+    void this.refresh(source, true);
+  }
+
   private onActiveFileChanged(): void {
     const file = this.host.getActiveFile();
     // If no markdown file is active but the last one is still open in a tab,
@@ -193,6 +231,8 @@ export class ReviewPanelView extends ItemView {
       this.currentFile = file;
       this.replyDrafts.clear();
       this.collapsedCards.clear();
+      this.pendingComment = null; // anchor was for the old file
+      this.focusComposer = false;
     }
     void this.refresh();
   }
@@ -276,11 +316,17 @@ export class ReviewPanelView extends ItemView {
 
     this.renderHeader(file, parsed, consumedHighlights.size);
 
+    // Composer renders above the card list (and before the empty-state bail) so
+    // an author can comment on a file that has no markup yet.
+    if (this.pendingComment) this.renderComposer(file);
+
     if (parsed.nodes.length === 0) {
-      this.contentEl.createEl("p", {
-        cls: "tc-empty",
-        text: "No comments or suggestions in this file.",
-      });
+      if (!this.pendingComment) {
+        this.contentEl.createEl("p", {
+          cls: "tc-empty",
+          text: "No comments or suggestions in this file.",
+        });
+      }
       return;
     }
 
@@ -369,6 +415,86 @@ export class ReviewPanelView extends ItemView {
       // unchanged-source short-circuit in refresh() would skip the repaint.
       void this.refresh(undefined, true);
     };
+  }
+
+  /**
+   * Composer card for a pending author-initiated comment (cm-1.5). Mirrors the
+   * reply composer: textarea + actions, ⌘/Ctrl+Enter submits, Esc cancels. The
+   * draft body lives on `pendingComment` so a background refresh preserves it.
+   */
+  private renderComposer(file: TFile): void {
+    const pc = this.pendingComment;
+    if (!pc) return;
+    const card = this.contentEl.createDiv({ cls: "tc-card tc-card-composer" });
+    card.createDiv({ cls: "tc-composer-title", text: "New comment" });
+    if (pc.from !== pc.to) {
+      const anchor = card.createDiv({ cls: "tc-thread-anchor" });
+      anchor.createSpan({ cls: "tc-thread-anchor-label", text: "On" });
+      anchor.createSpan({ cls: "tc-thread-anchor-text", text: pc.selected });
+    }
+    const reply = card.createDiv({ cls: "tc-reply" });
+    const ta = reply.createEl("textarea", {
+      cls: "tc-reply-input",
+      attr: { placeholder: "Comment…", rows: "3" },
+    });
+    ta.value = pc.body;
+    ta.addEventListener("input", () => {
+      pc.body = ta.value;
+    });
+    ta.addEventListener("keydown", (e) => {
+      if (e.key === "Enter" && (e.metaKey || e.ctrlKey)) {
+        e.preventDefault();
+        runEdit(this.submitComposer(file));
+      } else if (e.key === "Escape") {
+        e.preventDefault();
+        this.cancelComposer();
+      }
+    });
+    reply.createEl("p", {
+      cls: "tc-composer-hint",
+      text: "Your author prefix is added automatically.",
+    });
+    const actions = reply.createDiv({ cls: "tc-reply-actions" });
+    const submitBtn = actions.createEl("button", { cls: "tc-btn-primary", text: "Comment" });
+    submitBtn.addEventListener("click", () => runEdit(this.submitComposer(file)));
+    const cancelBtn = actions.createEl("button", { cls: "tc-btn", text: "Cancel" });
+    cancelBtn.addEventListener("click", () => this.cancelComposer());
+    if (this.focusComposer) {
+      this.focusComposer = false;
+      window.setTimeout(() => ta.focus(), 0);
+    }
+  }
+
+  private async submitComposer(file: TFile): Promise<void> {
+    const pc = this.pendingComment;
+    if (!pc) return;
+    const text = pc.body.trim();
+    if (!text) return;
+    const validationError = validateReplyText(text);
+    if (validationError) {
+      new Notice(validationError);
+      return;
+    }
+    // Clear up front so the synchronous refreshFromSource fired during applyEdits
+    // rebuilds without the composer. Restore on failure so a rejected write
+    // doesn't discard the user's typed body.
+    this.pendingComment = null;
+    try {
+      const ok = await this.host.submitComment(file, pc.from, pc.to, pc.source, text);
+      if (!ok) {
+        this.pendingComment = pc;
+        void this.refresh(undefined, true);
+      }
+    } catch (err) {
+      this.pendingComment = pc;
+      void this.refresh(undefined, true);
+      throw err;
+    }
+  }
+
+  private cancelComposer(): void {
+    this.pendingComment = null;
+    void this.refresh(undefined, true);
   }
 
   private renderThreadCard(

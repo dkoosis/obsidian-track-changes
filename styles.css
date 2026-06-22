@@ -468,6 +468,34 @@
   justify-content: flex-end;
 }
 
+/* Comment composer (cm-1.5) */
+.tc-card-composer {
+  border-color: var(--interactive-accent);
+}
+.tc-composer-title {
+  font-weight: 600;
+  font-size: 0.9em;
+  margin-bottom: 6px;
+}
+.tc-composer-hint {
+  margin: 4px 0 6px;
+  font-size: 0.8em;
+  color: var(--text-muted);
+}
+.tc-btn {
+  background: transparent;
+  color: var(--text-muted);
+  border: 1px solid var(--background-modifier-border);
+  padding: 4px 10px;
+  border-radius: 6px;
+  cursor: pointer;
+  font-size: 0.85em;
+}
+.tc-btn:hover {
+  color: var(--text-normal);
+  border-color: var(--text-normal);
+}
+
 /* Diff blocks */
 .tc-diff {
   display: flex;
