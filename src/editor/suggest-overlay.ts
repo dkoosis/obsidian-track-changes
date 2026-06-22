@@ -55,8 +55,10 @@ class PhantomDeletionWidget extends WidgetType {
     return other.text === this.text;
   }
 
-  toDOM(): HTMLElement {
-    const span = activeDocument.createElement("span");
+  toDOM(view: EditorView): HTMLElement {
+    // ownerDocument, not the global activeDocument: in an Obsidian popout the
+    // view lives in a separate window and must create nodes in its own document.
+    const span = view.dom.ownerDocument.createElement("span");
     span.className = "tc-suggest-del";
     span.setText(this.text);
     span.setAttr("aria-hidden", "true");

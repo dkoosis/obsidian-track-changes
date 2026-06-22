@@ -411,14 +411,18 @@ export default class TrackChangesCriticMarkupPlugin extends Plugin {
    * the next sync (leaf-change / file-open) repaints it.
    */
   private syncSuggestOverlay(file: TFile): void {
-    const editor = this.findEditorForFile(file);
-    const cm = editor ? (editor as unknown as { cm?: EditorView }).cm : undefined;
-    if (!cm) return;
     const baseline = this.suggestMode.baselineFor(file.path);
-    cm.dispatch({
-      effects:
-        baseline === null ? clearSuggestBaseline.of(null) : setSuggestBaseline.of(baseline),
-    });
+    const effect =
+      baseline === null ? clearSuggestBaseline.of(null) : setSuggestBaseline.of(baseline);
+    // Push to every pane showing this file — a split view of the same file has
+    // an independent CM6 instance, and missing one leaves that overlay stale.
+    for (const leaf of this.app.workspace.getLeavesOfType("markdown")) {
+      const view = leaf.view;
+      if (view instanceof MarkdownView && view.file === file) {
+        const cm = (view.editor as unknown as { cm?: EditorView }).cm;
+        if (cm) cm.dispatch({ effects: effect });
+      }
+    }
   }
 
   /** Current editor text for a file (live CM6 doc preferred), or "" if unopened. */
