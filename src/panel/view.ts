@@ -155,6 +155,15 @@ export class ReviewPanelView extends ItemView {
     this.contentEl.empty();
   }
 
+  /**
+   * The file the panel is currently showing. Sticky across focus loss (see the
+   * guard in `onActiveFileChanged`), so the host can describe the same file in
+   * its status-bar / ribbon mirror and the two never disagree about mode.
+   */
+  get reviewedFile(): TFile | null {
+    return this.currentFile;
+  }
+
   /** Called by the host when the user clicks an inline chip/mark. */
   focusOffset(file: TFile, offset: number): void {
     if (file !== this.currentFile) return;
