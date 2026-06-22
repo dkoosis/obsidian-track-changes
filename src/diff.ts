@@ -39,7 +39,18 @@ export function diffChars(oldText: string, newText: string): CharDiff {
     newRuns.push({ text: common.text, changed: false });
   }
 
-  if (midOld.length > 0 && midNew.length > 0 && midOld.length * midNew.length <= LCS_CAP) {
+  // Char-level highlight only when a shared edge (prefix or suffix) signals a
+  // typo/inflection — the eye is in letter-mode (recieve->receive, colour->color,
+  // cat->bat). With no shared edge it's a whole-word swap; the reader is in
+  // word-mode, so scatter-matching stray letters (Context/Reason share "on") just
+  // adds noise. Render those solid instead.
+  const sharedEdge = p > 0 || s > 0;
+  if (
+    sharedEdge &&
+    midOld.length > 0 &&
+    midNew.length > 0 &&
+    midOld.length * midNew.length <= LCS_CAP
+  ) {
     const [midOldRuns, midNewRuns] = lcsRuns(midOld, midNew);
     for (const r of midOldRuns) oldRuns.push(r);
     for (const r of midNewRuns) newRuns.push(r);

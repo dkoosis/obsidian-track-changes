@@ -5,6 +5,7 @@ import {
   TFile,
   Notice,
   Editor,
+  Menu,
 } from "obsidian";
 import { EditorView } from "@codemirror/view";
 import type { Extension } from "@codemirror/state";
@@ -19,15 +20,12 @@ import { REVIEW_VIEW_TYPE, ReviewPanelView, type PanelHost } from "./panel/view"
 import {
   applyEdits,
   rebaseEdits,
-  deleteSelection,
   selectionOverlapsNodes,
   commentOnSelection,
   commentAtPoint,
-  substituteSelection,
   snapOutOffset,
   beforeAnchor,
   validateHighlightContent,
-  validateDeletionContent,
   type SourceEdit,
 } from "./operations";
 import { parse, selectionInCode } from "./parser";
@@ -83,122 +81,17 @@ export default class TrackChangesCriticMarkupPlugin extends Plugin {
       name: "Open review panel",
       callback: () => this.openReviewPanel(),
     });
-    this.addCommand({
-      id: "mark-selection-deleted",
-      name: "Mark selection deleted",
-      editorCheckCallback: (checking, editor, ctx) => {
-        const file = ctx.file;
-        if (!file) return false;
-        const from = editor.posToOffset(editor.getCursor("from"));
-        const to = editor.posToOffset(editor.getCursor("to"));
-        if (from === to) return false; // empty selection
-        const source = editor.getValue();
-        // Refuse if the selection touches an existing mark — wrapping inside or
-        // across a node would nest markup the parser's dedup silently drops.
-        // Re-checked on BOTH the show (checking=true) and act runs.
-        if (selectionOverlapsNodes(parse(source).nodes, from, to)) return false;
-        // Refuse selections inside code — the parser skips code, so the wrapped
-        // deletion would be dropped, leaving dead markup in the sample (otc-402).
-        if (selectionInCode(source, from, to)) return false;
-        if (checking) return true;
-        const selected = source.slice(from, to);
-        // Refuse a selection carrying the deletion closer --}; wrapping it would
-        // close the node early and orphan the tail as raw text (delete-side
-        // analogue of the ==} highlight guard).
-        const err = validateDeletionContent(selected);
-        if (err) {
-          new Notice(err);
-          return true;
-        }
-        void this.applyEditsToFile(file, [deleteSelection(from, to, selected)], {
-          requireAll: true,
-        });
-        return true;
-      },
-    });
+    // Comment is its own path (a comment isn't an edit). Insert/delete/replace
+    // all flow through Suggesting mode + the diff engine — no per-selection
+    // delete-vs-substitute fork (GDoc model, spec Decision U).
     this.addCommand({
       id: "comment-on-selection",
       name: "Comment on selection",
-      // Comment never refuses (spec Decision C): a collapsed cursor inserts a
-      // bare point-comment; a selection intersecting a mark snaps out past it.
       editorCheckCallback: (checking, editor, ctx) => {
         const file = ctx.file;
         if (!file) return false;
         if (checking) return true;
-        const source = editor.getValue();
-        const from = editor.posToOffset(editor.getCursor("from"));
-        const to = editor.posToOffset(editor.getCursor("to"));
-        const selected = source.slice(from, to);
-        // Refuse anything landing in code — the parser skips code, so both the
-        // span-anchored highlight+comment and a bare point-comment would be
-        // dropped, leaving dead markup in the sample (otc-402). Comment normally
-        // never refuses, but in-code has no valid degraded form, so Notice out.
-        if (selectionInCode(source, from, to)) {
-          new Notice("Cannot comment inside a code block.");
-          return true;
-        }
-        // Only a clean selection takes the span-anchored {==…==} path; a
-        // collapsed cursor or a mark-intersecting selection degrades to a bare
-        // {>>…<<} that doesn't wrap the selection. So the highlight-content
-        // guard (E11) applies only when we'd actually wrap (refuse + Notice).
-        if (from !== to && !selectionOverlapsNodes(parse(source).nodes, from, to)) {
-          const err = validateHighlightContent(selected);
-          if (err) {
-            new Notice(err);
-            return true;
-          }
-        }
-        new AuthorCaptureModal(
-          this.app,
-          file,
-          source,
-          "comment",
-          selected,
-          async ({ text, source: snapshot }) => {
-            const edit = this.buildCommentEdit(snapshot, from, to, text);
-            await this.applyEditsToFile(file, [edit], {
-              requireAll: true,
-              expectedSource: snapshot,
-            });
-          },
-        ).open();
-        return true;
-      },
-    });
-    this.addCommand({
-      id: "substitute-selection",
-      name: "Substitute selection",
-      editorCheckCallback: (checking, editor, ctx) => {
-        const file = ctx.file;
-        if (!file) return false;
-        const from = editor.posToOffset(editor.getCursor("from"));
-        const to = editor.posToOffset(editor.getCursor("to"));
-        if (from === to) return false; // needs a selection
-        const source = editor.getValue();
-        // Destructive: refuse if the selection touches an existing mark.
-        // Re-checked on both the show and the act runs.
-        if (selectionOverlapsNodes(parse(source).nodes, from, to)) return false;
-        // Refuse selections inside code — wrapped markup would be dropped by the
-        // parser, leaving dead markup in the sample (otc-402).
-        if (selectionInCode(source, from, to)) return false;
-        if (checking) return true;
-        const selected = source.slice(from, to);
-        new AuthorCaptureModal(
-          this.app,
-          file,
-          source,
-          "substitute",
-          selected,
-          async ({ text, source: snapshot }) => {
-            // Validation already ran in the modal; the span-anchored edit drops
-            // on drift via expectedSource (E6) / fail-closed rebase (E7).
-            const edit = substituteSelection(from, to, selected, text);
-            await this.applyEditsToFile(file, [edit], {
-              requireAll: true,
-              expectedSource: snapshot,
-            });
-          },
-        ).open();
+        this.commentOnSelectionFlow(editor, file);
         return true;
       },
     });
@@ -255,6 +148,30 @@ export default class TrackChangesCriticMarkupPlugin extends Plugin {
     this.registerEvent(
       this.app.workspace.on("file-open", (file) => {
         if (file && file.extension === "md") this.syncSuggestOverlay(file);
+      }),
+    );
+
+    // Right-click entry points (cm-1.5). Two flat items — editor-menu has no
+    // submenu support (obsidian.d.ts). Mirrors GDoc: "Suggest edits" enters the
+    // one suggest-mode diff path; "Comment" anchors a comment. No delete/replace
+    // fork — that's handled by editing inside Suggesting mode.
+    this.registerEvent(
+      this.app.workspace.on("editor-menu", (menu: Menu, editor: Editor, info) => {
+        const file = info.file;
+        if (!file || file.extension !== "md") return;
+        menu.addItem((item) =>
+          item
+            .setTitle("Comment")
+            .setIcon("message-square")
+            .onClick(() => this.commentOnSelectionFlow(editor, file)),
+        );
+        const active = this.suggestMode.isActive(file.path);
+        menu.addItem((item) =>
+          item
+            .setTitle(active ? "Stop suggesting edits" : "Suggest edits")
+            .setIcon("pencil")
+            .onClick(() => void this.toggleSuggestMode(file)),
+        );
       }),
     );
 
@@ -435,7 +352,16 @@ export default class TrackChangesCriticMarkupPlugin extends Plugin {
 
   /** Repaint the status-bar + ribbon mirror to the active file's mode. */
   private refreshSuggestUI(): void {
-    const file = this.app.workspace.getActiveFile();
+    // Prefer the active markdown file; when focus moves off the editor (into the
+    // review panel or a non-md leaf) `getActiveFile()` goes null. Fall back to
+    // the file the panel is still showing so the status bar / ribbon stay in
+    // step with the panel header and the (sticky) editor overlay — otherwise
+    // they flip to Off while everything else still reads Suggesting.
+    let file = this.app.workspace.getActiveFile();
+    if (!file) {
+      const reviewed = this.getReviewView()?.reviewedFile ?? null;
+      if (reviewed && this.findEditorForFile(reviewed)) file = reviewed;
+    }
     const active = !!file && file.extension === "md" && this.suggestMode.isActive(file.path);
     if (this.suggestStatusEl) {
       this.suggestStatusEl.setText(active ? "✎ Suggesting" : "");
@@ -476,6 +402,49 @@ export default class TrackChangesCriticMarkupPlugin extends Plugin {
       const view = this.getReviewView();
       if (file && view) view.focusOffset(file, offset);
     })();
+  }
+
+  /**
+   * Run the comment capture flow for the current selection/cursor (shared by
+   * the "Comment on selection" command and the right-click "Comment" item).
+   * Comment never refuses (spec Decision C) except inside code, which has no
+   * valid degraded form (otc-402): a collapsed cursor inserts a bare
+   * point-comment; a selection intersecting a mark snaps out past it.
+   */
+  private commentOnSelectionFlow(editor: Editor, file: TFile): void {
+    const source = editor.getValue();
+    const from = editor.posToOffset(editor.getCursor("from"));
+    const to = editor.posToOffset(editor.getCursor("to"));
+    const selected = source.slice(from, to);
+    if (selectionInCode(source, from, to)) {
+      new Notice("Cannot comment inside a code block.");
+      return;
+    }
+    // Only a clean selection takes the span-anchored {==…==} path; a collapsed
+    // cursor or a mark-intersecting selection degrades to a bare {>>…<<} that
+    // doesn't wrap the selection. So the highlight-content guard (E11) applies
+    // only when we'd actually wrap (refuse + Notice).
+    if (from !== to && !selectionOverlapsNodes(parse(source).nodes, from, to)) {
+      const err = validateHighlightContent(selected);
+      if (err) {
+        new Notice(err);
+        return;
+      }
+    }
+    new AuthorCaptureModal(
+      this.app,
+      file,
+      source,
+      "comment",
+      selected,
+      async ({ text, source: snapshot }) => {
+        const edit = this.buildCommentEdit(snapshot, from, to, text);
+        await this.applyEditsToFile(file, [edit], {
+          requireAll: true,
+          expectedSource: snapshot,
+        });
+      },
+    ).open();
   }
 
   /**
