@@ -66,7 +66,7 @@ jobs:
           npx tsx wdio.conf.mts | grep 'obsidian-cache-key:' > obsidian-versions-lock.txt
           rm -rf .obsidian-cache
         env:
-          OBSIDIAN_VERSIONS: "earliest/earliest latest/latest"
+          OBSIDIAN_VERSIONS: "earliest latest"
 
       - name: Cache Obsidian downloads
         uses: actions/cache@v4
@@ -89,7 +89,7 @@ jobs:
       - name: E2E tests (real Obsidian)
         run: npm run test:e2e
         env:
-          OBSIDIAN_VERSIONS: "earliest/earliest latest/latest"
+          OBSIDIAN_VERSIONS: "earliest latest"
           WDIO_MAX_INSTANCES: 2
 
   # Real Obsidian Android app on an emulator. Manual-trigger only (make ci-android).
@@ -115,7 +115,7 @@ jobs:
           npx tsx wdio.mobile.conf.mts | grep 'obsidian-cache-key:' > obsidian-versions-lock.txt
           rm -rf .obsidian-cache
         env:
-          OBSIDIAN_VERSIONS: "earliest/earliest latest/latest"
+          OBSIDIAN_VERSIONS: "earliest latest"
 
       - name: Cache Obsidian downloads
         uses: actions/cache@v4
@@ -141,7 +141,7 @@ jobs:
           emulator-options: -no-snapshot -no-window -gpu swiftshader_indirect -noaudio -no-boot-anim -camera-back none
           script: npm run test:e2e:android
         env:
-          OBSIDIAN_VERSIONS: "earliest/earliest latest/latest"
+          OBSIDIAN_VERSIONS: "earliest latest"
 
   # One status check that gates the lot — set this as the required check on PRs.
   check:
