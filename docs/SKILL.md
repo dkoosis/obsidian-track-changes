@@ -1,5 +1,5 @@
 ---
-name: criticmarkup-reviewer
+name: track-changes-review
 description: Review a markdown document by inserting inline CriticMarkup annotations — comments (`{author="Name">>...<<}`), additions (`{author="Name"++...++}`), deletions (`{author="Name"--...--}`), substitutions (`{author="Name"~~old~>new~~}`), and highlights (`{author="Name"==...==}`). Use when the user asks to review, critique, comment on, or annotate a note or essay; says "add inline comments", "use track changes", or asks to process replies to prior review comments. Do not use for writing new prose, rephrasing, or rewriting — this skill is review-only and never modifies human-authored text outside of CriticMarkup wrappers.
 ---
 
