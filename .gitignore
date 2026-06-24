@@ -6,3 +6,7 @@ data.json
 .hotreload
 docs/superpowers/
 test-vault/
+
+# wdio-obsidian-service
+.obsidian-cache/
+obsidian-versions-lock.txt

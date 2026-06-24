@@ -1,0 +1,155 @@
+# yaml-language-server: $schema=https://json.schemastore.org/github-workflow.json
+name: Test
+on:
+  push:
+    branches: ["main"]
+  pull_request:
+    branches: ["main"]
+  workflow_dispatch:
+    inputs:
+      platforms:
+        description: "Which desktop OSes to run"
+        type: choice
+        default: linux
+        options: [linux, all] # all = Linux + Windows + macOS
+      android:
+        description: "Also run the real Obsidian Android app"
+        type: boolean
+        default: false
+
+permissions: {}
+
+jobs:
+  # Decide the desktop OS matrix: Linux-only by default (push/PR), all three
+  # only on a manual run with platforms=all. Keeps standard runs cheap.
+  setup:
+    runs-on: ubuntu-latest
+    outputs:
+      os: ${{ steps.pick.outputs.os }}
+    steps:
+      - id: pick
+        run: |
+          if [ "${{ github.event_name }}" = "workflow_dispatch" ] && [ "${{ inputs.platforms }}" = "all" ]; then
+            echo 'os=["ubuntu-latest","windows-latest","macos-latest"]' >> "$GITHUB_OUTPUT"
+          else
+            echo 'os=["ubuntu-latest"]' >> "$GITHUB_OUTPUT"
+          fi
+
+  test:
+    needs: setup
+    strategy:
+      fail-fast: false
+      matrix:
+        os: ${{ fromJSON(needs.setup.outputs.os) }}
+    runs-on: ${{ matrix.os }}
+    name: Test ${{ matrix.os }}
+    defaults:
+      run:
+        shell: bash # git-bash on Windows; lets the cache-key step run everywhere
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "22.x"
+          cache: "npm"
+
+      - run: npm ci
+      - run: npm run build
+
+      - name: Unit tests + typecheck
+        run: |
+          npm run typecheck
+          npm test
+
+      - name: Get Obsidian cache key
+        run: |
+          npx tsx wdio.conf.mts | grep 'obsidian-cache-key:' > obsidian-versions-lock.txt
+          rm -rf .obsidian-cache
+        env:
+          OBSIDIAN_VERSIONS: "earliest/earliest latest/latest"
+
+      - name: Cache Obsidian downloads
+        uses: actions/cache@v4
+        with:
+          path: .obsidian-cache
+          key: obsidian-cache-${{ matrix.os }}-${{ hashFiles('obsidian-versions-lock.txt') }}
+
+      - if: ${{ matrix.os == 'ubuntu-latest' }}
+        name: Setup virtual graphics
+        run: |
+          sudo apt-get update -q
+          sudo apt-get install -q -y herbstluftwm x11-xserver-utils
+          export DISPLAY=:99
+          echo "DISPLAY=$DISPLAY" >> "$GITHUB_ENV"
+          Xvfb $DISPLAY -screen 0 1280x1024x24 +extension GLX -noreset &
+          sleep 1
+          herbstluftwm &
+          sleep 1
+
+      - name: E2E tests (real Obsidian)
+        run: npm run test:e2e
+        env:
+          OBSIDIAN_VERSIONS: "earliest/earliest latest/latest"
+          WDIO_MAX_INSTANCES: 2
+
+  # Real Obsidian Android app on an emulator. Manual-trigger only (make ci-android).
+  test-android:
+    if: ${{ github.event_name == 'workflow_dispatch' && inputs.android }}
+    runs-on: ubuntu-latest
+    name: Test Android
+    defaults:
+      run:
+        shell: bash
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "22.x"
+          cache: "npm"
+
+      - run: npm ci
+      - run: npm run build
+
+      - name: Get Obsidian cache key
+        run: |
+          npx tsx wdio.mobile.conf.mts | grep 'obsidian-cache-key:' > obsidian-versions-lock.txt
+          rm -rf .obsidian-cache
+        env:
+          OBSIDIAN_VERSIONS: "earliest/earliest latest/latest"
+
+      - name: Cache Obsidian downloads
+        uses: actions/cache@v4
+        with:
+          path: .obsidian-cache
+          key: obsidian-cache-android-${{ hashFiles('obsidian-versions-lock.txt') }}
+
+      - name: Enable KVM
+        run: |
+          echo 'KERNEL=="kvm", GROUP="kvm", MODE="0666", OPTIONS+="static_node=kvm"' | sudo tee /etc/udev/rules.d/99-kvm4all.rules
+          sudo udevadm control --reload-rules
+          sudo udevadm trigger --name-match=kvm
+
+      - name: Run Android tests
+        uses: reactivecircus/android-emulator-runner@v2
+        with:
+          api-level: 36
+          arch: x86_64
+          target: google_apis
+          profile: pixel
+          avd-name: obsidian_test
+          force-avd-creation: false
+          emulator-options: -no-snapshot -no-window -gpu swiftshader_indirect -noaudio -no-boot-anim -camera-back none
+          script: npm run test:e2e:android
+        env:
+          OBSIDIAN_VERSIONS: "earliest/earliest latest/latest"
+
+  # One status check that gates the lot — set this as the required check on PRs.
+  check:
+    if: always()
+    needs: [test, test-android]
+    runs-on: ubuntu-latest
+    steps:
+      - uses: re-actors/alls-green@release/v1
+        with:
+          allowed-skips: test-android # skipped on normal pushes
+          jobs: ${{ toJSON(needs) }}

@@ -1,0 +1,13 @@
+{
+  "comment": "Editor/LSP config for e2e specs only. The plugin build (root tsconfig) is scoped to src/** and does not see these files.",
+  "compilerOptions": {
+    "module": "ESNext",
+    "target": "ES2017",
+    "moduleResolution": "bundler",
+    "types": ["node", "@wdio/globals/types", "wdio-obsidian-service", "mocha"],
+    "strict": true,
+    "skipLibCheck": true,
+    "noEmit": true
+  },
+  "include": ["specs/**/*.ts"]
+}
