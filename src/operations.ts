@@ -187,6 +187,7 @@ export function deleteThread(source: string, thread: Thread): SourceEdit {
  */
 export function sanitizeAuthorName(name: string): string {
   return name
+    // eslint-disable-next-line no-control-regex -- stripping control chars is the point
     .replace(/[\x00-\x1f\x7f\u2028\u2029]/g, "")
     .replace(/["{}]/g, "");
 }

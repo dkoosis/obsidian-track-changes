@@ -294,16 +294,6 @@ function locateClose(
   return locateLiteral(el, cursor, tok);
 }
 
-function openLiteral(kind: CriticNode["kind"]): string {
-  switch (kind) {
-    case "addition": return "{++";
-    case "deletion": return "{--";
-    case "substitution": return "{~~";
-    case "comment": return "{>>";
-    case "highlight": return "{==";
-  }
-}
-
 function closeLiteral(kind: CriticNode["kind"]): string {
   switch (kind) {
     case "addition": return "++}";
