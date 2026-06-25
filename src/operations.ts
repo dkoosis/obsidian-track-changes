@@ -101,11 +101,13 @@ export function commentOnSelection(
 }
 
 /**
- * Insert a bare comment at a point (collapsed selection, or the snap-out target
- * when a selection intersects a mark — E2/E10). Zero-width insertion, so it
- * carries no `expected`; the `before` anchor (Decision B — see `beforeAnchor`)
- * lets `rebaseEdit` relocate it if the doc drifts. `metaPrefix` is the optional
- * `author="…"` attribute prefix stamped on the mark.
+ * Insert a bare comment at a point — a collapsed cursor, or a whitespace-only
+ * selection snapped out past any mark it sits inside so it can't nest. (A
+ * real-range selection that overlaps a mark is refused upstream, not snapped —
+ * see `buildCommentEdit`.) Zero-width insertion, so it carries no `expected`;
+ * the `before` anchor (Decision B — see `beforeAnchor`) lets `rebaseEdit`
+ * relocate it if the doc drifts. `metaPrefix` is the optional `author="…"`
+ * attribute prefix stamped on the mark.
  */
 export function commentAtPoint(
   at: number,
@@ -159,15 +161,53 @@ export function beforeAnchor(source: string, at: number): string {
 }
 
 /**
- * Snap-out target for a comment whose selection intersects existing marks
- * (E2/E10): the `to` offset just past the last intersecting node, where a bare
- * comment can sit without nesting inside markup the parser's dedup would drop.
- * Returns null when nothing intersects (caller uses `commentOnSelection`).
+ * Snap-out target past the last intersecting mark: the `to` offset where a bare
+ * point comment can sit without nesting inside markup the parser's dedup would
+ * drop. Used only for the whitespace-only degrade in `buildCommentEdit` — a
+ * real-range overlapping selection is refused, not snapped. Returns null when
+ * nothing intersects.
  */
 export function snapOutOffset(nodes: CriticNode[], s: number, e: number): number | null {
   const hit = nodes.filter((n) => s < n.to && n.from < e);
   if (hit.length === 0) return null;
   return Math.max(...hit.map((n) => n.to));
+}
+
+/**
+ * Pick the comment edit for a selection `[from,to)` against `source` (already
+ * parsed into `nodes`), or `null` when the selection is refused.
+ *
+ * - A clean real-range selection takes the span-anchored `{==sel==}{>>body<<}`
+ *   wrap.
+ * - A real-range selection that **overlaps** an existing mark is **refused**
+ *   (`null`): inline CriticMarkup has no nesting grammar — wrapping would splice
+ *   `{==`/`==}` mid-mark and destroy it, and there is no sidecar layer to hold an
+ *   overlapping anchor (cf. Google Docs, where comment anchors are out-of-band
+ *   and overlap freely). The caller surfaces "Selections can't overlap comments
+ *   or suggestions." and places nothing. This carves the overlap case out of
+ *   Decision C (degrade→refuse, dk 2026-06-25, otc-785) — it supersedes the old
+ *   snap-out, which dropped the comment past the last mark where the parser
+ *   silently threaded it as a reply.
+ * - A collapsed cursor or a whitespace-only selection still degrades to a bare
+ *   `{>>body<<}` point comment (Decision C): there's no range to highlight, and
+ *   wrapping whitespace would emit a contentless `{== ==}` that renders as a
+ *   runaway highlight. The point is snapped out past any mark it sits inside so
+ *   it can't nest.
+ */
+export function buildCommentEdit(
+  nodes: CriticNode[],
+  source: string,
+  from: number,
+  to: number,
+  body: string,
+  metaPrefix = "",
+): SourceEdit | null {
+  const selected = source.slice(from, to);
+  const isRange = from !== to && selected.trim() !== "";
+  if (isRange && selectionOverlapsNodes(nodes, from, to)) return null;
+  if (isRange) return commentOnSelection(from, to, selected, body, metaPrefix);
+  const at = from === to ? from : snapOutOffset(nodes, from, to) ?? to;
+  return commentAtPoint(at, body, beforeAnchor(source, at), metaPrefix);
 }
 
 /** Apply a list of edits to a source string. Edits must be non-overlapping. */

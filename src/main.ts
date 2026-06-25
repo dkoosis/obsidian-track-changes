@@ -21,10 +21,7 @@ import {
   applyEdits,
   rebaseEdits,
   selectionOverlapsNodes,
-  commentOnSelection,
-  commentAtPoint,
-  snapOutOffset,
-  beforeAnchor,
+  buildCommentEdit,
   validateHighlightContent,
   sanitizeAuthorName,
   type SourceEdit,
@@ -425,9 +422,10 @@ export default class TrackChangesCriticMarkupPlugin extends Plugin {
   /**
    * Run the comment capture flow for the current selection/cursor (shared by
    * the "Comment on selection" command and the right-click "Comment" item).
-   * Comment never refuses (spec Decision C) except inside code, which has no
-   * valid degraded form (otc-402): a collapsed cursor inserts a bare
-   * point-comment; a selection intersecting a mark snaps out past it.
+   * Refuses inside code, which has no valid degraded form (otc-402), and on a
+   * selection that overlaps an existing mark, which can't nest inline
+   * (otc-785). Otherwise a collapsed cursor or whitespace-only selection inserts
+   * a bare point-comment (Decision C), and a clean range gets wrapped.
    */
   private async commentOnSelectionFlow(editor: Editor, file: TFile): Promise<void> {
     const source = editor.getValue();
@@ -438,11 +436,18 @@ export default class TrackChangesCriticMarkupPlugin extends Plugin {
       new Notice("Cannot comment inside a code block.");
       return;
     }
-    // Only a clean selection takes the span-anchored {==…==} path; a collapsed
-    // cursor or a mark-intersecting selection degrades to a bare {>>…<<} that
-    // doesn't wrap the selection. So the highlight-content guard (E11) applies
-    // only when we'd actually wrap (refuse + Notice).
-    if (from !== to && !selectionOverlapsNodes(parse(source).nodes, from, to)) {
+    const isRange = from !== to && selected.trim() !== "";
+    const nodes = parse(source).nodes;
+    // A comment can't nest inside an existing mark (no inline nesting grammar,
+    // no sidecar anchor) — refuse before the composer opens (otc-785). Collapsed
+    // and whitespace-only selections still degrade to a point comment below.
+    if (isRange && selectionOverlapsNodes(nodes, from, to)) {
+      new Notice("Selections can't overlap comments or suggestions.");
+      return;
+    }
+    // The highlight-content guard (E11) applies only when we'd actually wrap —
+    // i.e. a clean range. Overlap was already refused above.
+    if (isRange) {
       const err = validateHighlightContent(selected);
       if (err) {
         new Notice(err);
@@ -481,33 +486,17 @@ export default class TrackChangesCriticMarkupPlugin extends Plugin {
     // name can't corrupt the mark.
     const name = sanitizeAuthorName((this.settings.localAuthorName ?? "").trim());
     const metaPrefix = name ? `author="${name}"` : "";
-    const edit = this.buildCommentEdit(source, from, to, body, metaPrefix);
+    const edit = buildCommentEdit(parse(source).nodes, source, from, to, body, metaPrefix);
+    // null ⇒ the selection now overlaps a mark (the doc drifted since the
+    // composer opened). Refuse rather than nest (otc-785).
+    if (!edit) {
+      new Notice("Selections can't overlap comments or suggestions.");
+      return Promise.resolve(false);
+    }
     return this.applyEditsToFile(file, [edit], {
       requireAll: true,
       expectedSource: source,
     });
-  }
-
-  /**
-   * Pick the right comment builder for a selection against `source`:
-   *   - clean non-empty selection -> span-anchored `{==sel==}{>>body<<}`;
-   *   - collapsed cursor, or a selection intersecting a mark -> bare
-   *     `{>>body<<}` snapped out past the last intersecting node, so it never
-   *     nests inside a body (which the parser's dedup would silently drop).
-   */
-  private buildCommentEdit(
-    source: string,
-    from: number,
-    to: number,
-    body: string,
-    metaPrefix = "",
-  ): SourceEdit {
-    const nodes = parse(source).nodes;
-    if (from !== to && !selectionOverlapsNodes(nodes, from, to)) {
-      return commentOnSelection(from, to, source.slice(from, to), body, metaPrefix);
-    }
-    const at = from === to ? from : snapOutOffset(nodes, from, to) ?? to;
-    return commentAtPoint(at, body, beforeAnchor(source, at), metaPrefix);
   }
 
   // ---- editor edit application ----
