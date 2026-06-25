@@ -197,9 +197,8 @@ export class ReviewPanelView extends ItemView {
     if (card) {
       card.scrollIntoView({ behavior: "smooth", block: "center" });
       card.addClass("tc-card-flash");
-      this.registerInterval(
-        window.setTimeout(() => card.removeClass("tc-card-flash"), 1200),
-      );
+      const timer = window.setTimeout(() => card.removeClass("tc-card-flash"), 1200);
+      this.register(() => window.clearTimeout(timer));
     }
   }
 
