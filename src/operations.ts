@@ -167,7 +167,7 @@ export function applyEdits(source: string, edits: SourceEdit[]): string {
   // sorted[i+1].to <= sorted[i].from. Catch contract violations early — silent
   // overlap would corrupt the source via the slice/splice loop below.
   for (let i = 0; i < sorted.length - 1; i++) {
-    if (sorted[i + 1].to > sorted[i].from) {
+    if (sorted[i + 1]!.to > sorted[i]!.from) { // safe: i < sorted.length - 1
       throw new Error("applyEdits: overlapping edits");
     }
   }
@@ -224,7 +224,7 @@ export function rebaseEdit(currentDoc: string, edit: SourceEdit): SourceEdit | n
   // by context, otherwise a stale action could edit an identical nearby block.
   if (matches.length !== 1) return null;
 
-  const newFrom = matches[0] + before.length;
+  const newFrom = matches[0]! + before.length; // safe: matches.length === 1
   return {
     ...edit,
     from: newFrom,
@@ -358,7 +358,7 @@ export function appendReply(
 
   const lastIdx =
     thread.replyIndexes.length > 0
-      ? thread.replyIndexes[thread.replyIndexes.length - 1]
+      ? thread.replyIndexes[thread.replyIndexes.length - 1]! // safe: length > 0
       : thread.rootIndex;
   const last = parsed.nodes[lastIdx] as CommentNode;
   const reply = `{>>${text}<<}`;

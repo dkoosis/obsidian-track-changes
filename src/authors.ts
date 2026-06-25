@@ -46,7 +46,8 @@ const KNOWN_AUTHORS: Record<string, number> = {
 
 export function authorHueIndex(name: string): number {
   const lower = name.toLowerCase();
-  if (lower in KNOWN_AUTHORS) return KNOWN_AUTHORS[lower];
+  const known = KNOWN_AUTHORS[lower];
+  if (known !== undefined) return known;
   let h = 0;
   for (let i = 0; i < lower.length; i++) h = (h * 31 + lower.charCodeAt(i)) >>> 0;
   return h % 8;

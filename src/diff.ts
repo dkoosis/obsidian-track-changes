@@ -77,10 +77,10 @@ function lcsRuns(a: string, b: string): [DiffRun[], DiffRun[]] {
     for (let j = m - 1; j >= 0; j--) {
       const idx = i * w + j;
       if (a.charCodeAt(i) === b.charCodeAt(j)) {
-        dp[idx] = dp[(i + 1) * w + (j + 1)] + 1;
+        dp[idx] = dp[(i + 1) * w + (j + 1)]! + 1; // safe: indices in [0, dp.length)
       } else {
-        const down = dp[(i + 1) * w + j];
-        const right = dp[i * w + (j + 1)];
+        const down = dp[(i + 1) * w + j]!; // safe: index in bounds
+        const right = dp[i * w + (j + 1)]!; // safe: index in bounds
         dp[idx] = down >= right ? down : right;
       }
     }
@@ -92,20 +92,20 @@ function lcsRuns(a: string, b: string): [DiffRun[], DiffRun[]] {
   let j = 0;
   while (i < n && j < m) {
     if (a.charCodeAt(i) === b.charCodeAt(j)) {
-      pushChar(aRuns, a[i], false);
-      pushChar(bRuns, b[j], false);
+      pushChar(aRuns, a[i]!, false); // safe: i < n
+      pushChar(bRuns, b[j]!, false); // safe: j < m
       i++;
       j++;
-    } else if (dp[(i + 1) * w + j] >= dp[i * w + (j + 1)]) {
-      pushChar(aRuns, a[i], true);
+    } else if (dp[(i + 1) * w + j]! >= dp[i * w + (j + 1)]!) { // safe: indices in bounds
+      pushChar(aRuns, a[i]!, true); // safe: i < n
       i++;
     } else {
-      pushChar(bRuns, b[j], true);
+      pushChar(bRuns, b[j]!, true); // safe: j < m
       j++;
     }
   }
-  while (i < n) pushChar(aRuns, a[i++], true);
-  while (j < m) pushChar(bRuns, b[j++], true);
+  while (i < n) pushChar(aRuns, a[i++]!, true); // safe: i < n
+  while (j < m) pushChar(bRuns, b[j++]!, true); // safe: j < m
   return [aRuns, bRuns];
 }
 
@@ -165,7 +165,7 @@ function diffTokens(a: string[], b: string[]): DiffOp[] {
   while (suf < minLen - p && a[a.length - 1 - suf] === b[b.length - 1 - suf]) suf++;
 
   const ops: DiffOp[] = [];
-  for (let i = 0; i < p; i++) ops.push({ kind: "eq", text: a[i] });
+  for (let i = 0; i < p; i++) ops.push({ kind: "eq", text: a[i]! }); // safe: i < p <= a.length
 
   const midA = a.slice(p, a.length - suf);
   const midB = b.slice(p, b.length - suf);
@@ -177,7 +177,7 @@ function diffTokens(a: string[], b: string[]): DiffOp[] {
     for (const t of midB) ops.push({ kind: "ins", text: t });
   }
 
-  for (let i = a.length - suf; i < a.length; i++) ops.push({ kind: "eq", text: a[i] });
+  for (let i = a.length - suf; i < a.length; i++) ops.push({ kind: "eq", text: a[i]! }); // safe: i < a.length
   return ops;
 }
 
@@ -190,10 +190,10 @@ function pushLcsOps(a: string[], b: string[], ops: DiffOp[]): void {
     for (let j = m - 1; j >= 0; j--) {
       const idx = i * w + j;
       if (a[i] === b[j]) {
-        dp[idx] = dp[(i + 1) * w + (j + 1)] + 1;
+        dp[idx] = dp[(i + 1) * w + (j + 1)]! + 1; // safe: index in bounds
       } else {
-        const down = dp[(i + 1) * w + j];
-        const right = dp[i * w + (j + 1)];
+        const down = dp[(i + 1) * w + j]!; // safe: index in bounds
+        const right = dp[i * w + (j + 1)]!; // safe: index in bounds
         dp[idx] = down >= right ? down : right;
       }
     }
@@ -202,19 +202,19 @@ function pushLcsOps(a: string[], b: string[], ops: DiffOp[]): void {
   let j = 0;
   while (i < n && j < m) {
     if (a[i] === b[j]) {
-      ops.push({ kind: "eq", text: a[i] });
+      ops.push({ kind: "eq", text: a[i]! }); // safe: i < n
       i++;
       j++;
-    } else if (dp[(i + 1) * w + j] >= dp[i * w + (j + 1)]) {
-      ops.push({ kind: "del", text: a[i] });
+    } else if (dp[(i + 1) * w + j]! >= dp[i * w + (j + 1)]!) { // safe: indices in bounds
+      ops.push({ kind: "del", text: a[i]! }); // safe: i < n
       i++;
     } else {
-      ops.push({ kind: "ins", text: b[j] });
+      ops.push({ kind: "ins", text: b[j]! }); // safe: j < m
       j++;
     }
   }
-  while (i < n) ops.push({ kind: "del", text: a[i++] });
-  while (j < m) ops.push({ kind: "ins", text: b[j++] });
+  while (i < n) ops.push({ kind: "del", text: a[i++]! }); // safe: i < n
+  while (j < m) ops.push({ kind: "ins", text: b[j++]! }); // safe: j < m
 }
 
 /**

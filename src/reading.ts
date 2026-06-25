@@ -115,8 +115,8 @@ function applyToSection(
   // A markup that fully wraps this section (open and close both outside) is
   // by parser invariant the only one intersecting — markup nodes are
   // non-overlapping post-dedup. Hide or keep wholesale.
-  if (ops.length === 1 && !ops[0].openIn && !ops[0].closeIn) {
-    handleFullyInterior(el, ops[0].node);
+  if (ops.length === 1 && !ops[0]!.openIn && !ops[0]!.closeIn) { // safe: length === 1
+    handleFullyInterior(el, ops[0]!.node);
     return;
   }
 
@@ -125,7 +125,7 @@ function applyToSection(
   const located = locateAll(el, ops, secFrom, secTo);
   // Mutate in reverse source order so earlier-located positions stay valid.
   for (let i = located.length - 1; i >= 0; i--) {
-    applyLocated(el, located[i], parsed, iconTargets, opts);
+    applyLocated(el, located[i]!, parsed, iconTargets, opts); // safe: 0 <= i < located.length
   }
 }
 
@@ -479,7 +479,7 @@ function makeCommentIcon(
   const root = parsed.nodes[rootCommentIdx] as CommentNode | undefined;
   if (!root || root.kind !== "comment") return null;
   const threadIdx = parsed.nodeThread[rootCommentIdx];
-  const thread = threadIdx >= 0 ? parsed.threads[threadIdx] : null;
+  const thread = threadIdx !== undefined && threadIdx >= 0 ? (parsed.threads[threadIdx] ?? null) : null;
 
   const span = doc.createElement("span");
   span.className = "tc-rm-comment";

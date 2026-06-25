@@ -101,8 +101,9 @@ function findCodeRegions(source: string): Array<[number, number]> {
   // (the `\r` sits between the fence and the newline) and the block would run to EOF.
   const fenceRe = /(^|\n)( {0,3})(```+|~~~+)[^\n]*\n[\s\S]*?(?:\n {0,3}\3[ \t]*(?=\r?\n|$)|$)/g;
   for (const m of source.matchAll(fenceRe)) {
-    const from = (m.index ?? 0) + m[1].length;
-    regions.push([from, from + m[0].length - m[1].length]);
+    const lead = m[1] ?? ""; // group 1 is `(^|\n)`, always present
+    const from = (m.index ?? 0) + lead.length;
+    regions.push([from, from + m[0].length - lead.length]);
   }
   // Indented code blocks (CommonMark): a 4-space- or tab-indented run that
   // starts after a blank line (or at the doc start) and ends at the next
@@ -215,8 +216,8 @@ export function parse(source: string, options: ParseOptions = {}): ParseResult {
       from: m.index,
       to: m.index + m[0].length,
       raw: m[0],
-      oldText: m[1],
-      newText: m[2],
+      oldText: m[1]!, // safe: SUBSTITUTION_RE always captures group 1
+      newText: m[2]!, // safe: SUBSTITUTION_RE always captures group 2
     });
   }
   for (const m of source.matchAll(ADDITION_RE)) {
@@ -225,7 +226,7 @@ export function parse(source: string, options: ParseOptions = {}): ParseResult {
       from: m.index,
       to: m.index + m[0].length,
       raw: m[0],
-      text: m[1],
+      text: m[1]!, // safe: ADDITION_RE always captures group 1
     });
   }
   for (const m of source.matchAll(DELETION_RE)) {
@@ -234,7 +235,7 @@ export function parse(source: string, options: ParseOptions = {}): ParseResult {
       from: m.index,
       to: m.index + m[0].length,
       raw: m[0],
-      text: m[1],
+      text: m[1]!, // safe: DELETION_RE always captures group 1
     });
   }
   for (const m of source.matchAll(HIGHLIGHT_RE)) {
@@ -243,14 +244,14 @@ export function parse(source: string, options: ParseOptions = {}): ParseResult {
       from: m.index,
       to: m.index + m[0].length,
       raw: m[0],
-      text: m[1],
+      text: m[1]!, // safe: HIGHLIGHT_RE always captures group 1
     });
   }
   for (const m of source.matchAll(COMMENT_RE)) {
     const raw = m[0];
-    const body = m[1];
+    const body = m[1] ?? ""; // COMMENT_RE always captures group 1
     const authorMatch = body.match(AUTHOR_RE);
-    const authorName = authorMatch ? authorMatch[1] : null;
+    const authorName = authorMatch ? (authorMatch[1] ?? null) : null;
     const text = authorMatch ? body.slice(authorMatch[0].length) : body;
     nodes.push({
       kind: "comment",
@@ -287,7 +288,7 @@ export function parse(source: string, options: ParseOptions = {}): ParseResult {
   let prevCommentIdx = -1;
 
   for (let i = 0; i < accepted.length; i++) {
-    const n = accepted[i];
+    const n = accepted[i]!; // safe: i < accepted.length
     if (n.kind !== "comment") continue;
 
     if (prevCommentIdx >= 0 && currentThread) {
@@ -324,7 +325,7 @@ export function parse(source: string, options: ParseOptions = {}): ParseResult {
 /** Find the thread index whose range contains the given offset, or -1. */
 export function threadAtOffset(result: ParseResult, offset: number): number {
   for (let i = 0; i < result.threads.length; i++) {
-    const t = result.threads[i];
+    const t = result.threads[i]!; // safe: i < result.threads.length
     if (offset >= t.from && offset <= t.to) return i;
   }
   return -1;
@@ -333,7 +334,7 @@ export function threadAtOffset(result: ParseResult, offset: number): number {
 /** Find the node index whose range contains the given offset, or -1. */
 export function nodeAtOffset(result: ParseResult, offset: number): number {
   for (let i = 0; i < result.nodes.length; i++) {
-    const n = result.nodes[i];
+    const n = result.nodes[i]!; // safe: i < result.nodes.length
     if (offset >= n.from && offset <= n.to) return i;
   }
   return -1;

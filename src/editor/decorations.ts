@@ -164,12 +164,15 @@ function buildDecorations(state: EditorState, callbacks: DecorationCallbacks): D
   const threadOfNode = parsed.nodeThread;
   const consumedThreads = new Set<number>();
   for (let i = 0; i < parsed.nodes.length; i++) {
-    const n = parsed.nodes[i];
+    const n = parsed.nodes[i]!; // safe: i < parsed.nodes.length
     if (n.kind === "comment") {
-      const t = threadOfNode[i];
+      const t = threadOfNode[i]; // nodeThread is parallel to nodes
+      if (t === undefined || t < 0) continue;
+      const thread = parsed.threads[t];
+      if (thread === undefined) continue;
       if (consumedThreads.has(t)) continue;
       consumedThreads.add(t);
-      items.push({ kind: "thread", thread: parsed.threads[t] });
+      items.push({ kind: "thread", thread });
     } else {
       items.push({ kind: "node", node: n });
     }
