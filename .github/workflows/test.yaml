@@ -20,29 +20,24 @@ on:
 permissions: {}
 
 jobs:
-  # Decide the desktop OS matrix: Linux-only by default (push/PR), all three
-  # only on a manual run with platforms=all. Keeps standard runs cheap.
-  setup:
-    runs-on: ubuntu-latest
-    outputs:
-      os: ${{ steps.pick.outputs.os }}
-    steps:
-      - id: pick
-        run: |
-          if [ "${{ github.event_name }}" = "workflow_dispatch" ] && [ "${{ inputs.platforms }}" = "all" ]; then
-            echo 'os=["ubuntu-latest","windows-latest","macos-latest"]' >> "$GITHUB_OUTPUT"
-          else
-            echo 'os=["ubuntu-latest"]' >> "$GITHUB_OUTPUT"
-          fi
-
+  # Unit suite (typecheck + npm test) runs on all three desktop OSes on every
+  # push/PR — it's fast and Obsidian-free, and catches the per-OS bugs that
+  # actually bite this code: path separators, CRLF vs LF in the parser/edits.
+  #
+  # The heavy e2e step (real Obsidian download + launch) runs only on Linux by
+  # default; a manual run with platforms=all (make ci-cross) extends it to
+  # Windows + macOS too. Keeps standard pushes cheap without losing OS coverage
+  # of the pure-logic suite.
   test:
-    needs: setup
     strategy:
       fail-fast: false
       matrix:
-        os: ${{ fromJSON(needs.setup.outputs.os) }}
+        os: [ubuntu-latest, windows-latest, macos-latest]
     runs-on: ${{ matrix.os }}
     name: Test ${{ matrix.os }}
+    env:
+      # e2e on Linux always; on Windows/macOS only via `make ci-cross`.
+      RUN_E2E: ${{ matrix.os == 'ubuntu-latest' || (github.event_name == 'workflow_dispatch' && inputs.platforms == 'all') }}
     defaults:
       run:
         shell: bash # git-bash on Windows; lets the cache-key step run everywhere
@@ -61,20 +56,22 @@ jobs:
           npm run typecheck
           npm test
 
-      - name: Get Obsidian cache key
+      - if: env.RUN_E2E == 'true'
+        name: Get Obsidian cache key
         run: |
           npx tsx wdio.conf.mts | grep 'obsidian-cache-key:' > obsidian-versions-lock.txt
           rm -rf .obsidian-cache
         env:
           OBSIDIAN_VERSIONS: "1.7.4 latest"
 
-      - name: Cache Obsidian downloads
+      - if: env.RUN_E2E == 'true'
+        name: Cache Obsidian downloads
         uses: actions/cache@v4
         with:
           path: .obsidian-cache
           key: obsidian-cache-${{ matrix.os }}-${{ hashFiles('obsidian-versions-lock.txt') }}
 
-      - if: ${{ matrix.os == 'ubuntu-latest' }}
+      - if: ${{ env.RUN_E2E == 'true' && matrix.os == 'ubuntu-latest' }}
         name: Setup virtual graphics
         run: |
           sudo apt-get update -q
@@ -86,7 +83,8 @@ jobs:
           herbstluftwm &
           sleep 1
 
-      - name: E2E tests (real Obsidian)
+      - if: env.RUN_E2E == 'true'
+        name: E2E tests (real Obsidian)
         run: npm run test:e2e
         env:
           OBSIDIAN_VERSIONS: "1.7.4 latest"
