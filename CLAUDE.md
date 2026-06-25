@@ -58,3 +58,18 @@ A thread is a run of `{>>…<<}` blocks with only inline whitespace (no blank li
 - Source edits must be non-overlapping; `applyEdits` asserts this and throws on violation. Construct edits with that contract in mind.
 - When adding a new mutation, always set `expected` (and `before` for insertions) so it survives `rebaseEdits`.
 - Companion-agent behavior is documented in `docs/SKILL.md` (the example reviewer-skill template shipped with the plugin). When changing thread/prefix semantics, update both this file and that one.
+
+### Review compliance (each authoring PR)
+
+The source passes Obsidian store review today (audited 2026-06-21). As `cm-3` onward adds commands, editor-menu items, and modals, this checklist keeps that fresh DOM/command surface from regressing it. Self-check before opening a PR.
+
+| Area | Do | Never |
+|------|----|-------|
+| DOM | `createEl` / `createDiv` / `createSpan` + `el.empty()` | `innerHTML` / `outerHTML` / `insertAdjacentHTML` |
+| Styling | CSS classes + Obsidian CSS variables in `styles.css` | inline `.style` / `style=` props |
+| Commands | correct callback kind (`editorCallback` / `editorCheckCallback` for editor commands) | default hotkeys; plugin id in the command id (Obsidian auto-prefixes) |
+| Editor-menu (Phase E) | sentence case, labels disambiguated per spec I-COLLISION | emoji |
+| Headings (settings/modal) | `setHeading()`, sentence case | `<h1>` / `<h2>`; the word "settings" |
+| File writes | Editor API for the active file, `Vault.process` for background files | `Vault.modify` |
+| App access | `this.app` | `window.app` / global `app`; console logging beyond errors |
+| Mobile | keep `isDesktopOnly: false` only with no Node/Electron API and no regex lookbehind | — |
