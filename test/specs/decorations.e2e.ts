@@ -1,24 +1,6 @@
 import { browser, expect } from "@wdio/globals";
+import { PLUGIN_ID, openInLivePreview } from "./helpers.js";
 // describe/it/before are mocha globals provided by @wdio/mocha-framework.
-
-const PLUGIN_ID = "track-changes";
-
-// Open a note and force Live Preview (mode:source, source:false) so the CM6
-// decoration extension runs. executeObsidian serializes the callback, so the
-// path is passed as an argument, not captured.
-async function openInLivePreview(path: string): Promise<void> {
-  await browser.executeObsidian(async ({ app, obsidian }, p: string) => {
-    const file = app.vault.getAbstractFileByPath(p);
-    if (!(file instanceof obsidian.TFile)) throw new Error(`no such note: ${p}`);
-    const leaf = app.workspace.getLeaf();
-    await leaf.openFile(file, { active: true });
-    await leaf.setViewState({
-      type: "markdown",
-      state: { mode: "source", source: false },
-      active: true,
-    });
-  }, path);
-}
 
 describe("track-changes: inline decorations", function () {
   before(async function () {
