@@ -34,6 +34,7 @@ CriticMarkup is an inline syntax for review annotations. Five forms:
 
 Rules:
 - **Prefix every comment with `<Name>:`** (use your model's name — `Claude:`, `GPT:`, etc.). Never omit it — unprefixed comments are treated as the user's own, not yours.
+- **An unprefixed top-level comment may be the human's own original mark.** The human can set an "Author name" in plugin settings, in which case their panel-written comments carry that prefix (e.g. `{>>dk: …<<}`) — the same `<Name>:` grammar that identifies you. A human mark with that prefix is theirs, not a reply slot for you. Treat an unprefixed top-level comment as a human original (or a waiting prompt), never as something you authored.
 - Place the comment immediately after the passage it refers to. Same paragraph if it fits, otherwise on the next line. No blank line in between or threading breaks.
 - Don't modify the surrounding text. Insert markup only.
 - **Comments are the default.** Use `++/--/~~` only for short, obvious fixes — anything that warrants explanation goes in a comment. Use `==` sparingly, only when you can't form a useful comment. A bare suggestion or highlight without rationale is noise.

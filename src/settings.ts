@@ -1,5 +1,6 @@
 import { App, PluginSettingTab, Setting } from "obsidian";
 import type TrackChangesCriticMarkupPlugin from "./main";
+import { isValidAuthorName } from "./authors";
 import { DEFAULT_FINALIZE, type FinalizeOptions } from "./operations";
 
 export interface TrackChangesCriticMarkupSettings {
@@ -29,6 +30,13 @@ export interface TrackChangesCriticMarkupSettings {
    * emphasis.
    */
   highlightChangedChars: boolean;
+  /**
+   * Your author name, prefixed onto comments you write from the panel as
+   * `{>>Name: …<<}`. Empty by default — an unprefixed comment renders as
+   * "You" (the local user). Set this so your marks carry a stable identity
+   * the way an AI reviewer's `Claude:` / `GPT:` prefix does.
+   */
+  myAuthorName: string;
   /** Defaults that pre-populate the Finalize dialog. */
   finalize: FinalizeOptions;
 }
@@ -39,6 +47,7 @@ export const DEFAULT_SETTINGS: TrackChangesCriticMarkupSettings = {
   clickMarksToOpenPanel: false,
   confirmBeforeDelete: true,
   highlightChangedChars: true,
+  myAuthorName: "",
   finalize: { ...DEFAULT_FINALIZE },
 };
 
@@ -115,6 +124,29 @@ export class TrackChangesCriticMarkupSettingsTab extends PluginSettingTab {
           await this.plugin.saveSettings();
         }),
       );
+
+    new Setting(containerEl)
+      .setName("Author name")
+      .setDesc(
+        "Prefixes comments you write from the panel as {>>Name: …<<}. Leave empty to stay anonymous — unprefixed comments render as \"You\".",
+      )
+      .addText((t) => {
+        // Flag a name the parser can't read back (spaces, leading digit, >30
+        // chars): it would be dropped rather than prefixed, silently rendering
+        // as "You". The red border tells the user why their name isn't sticking.
+        const flagValidity = (val: string) => {
+          const trimmed = val.trim();
+          const ok = !trimmed || isValidAuthorName(trimmed);
+          t.inputEl.toggleClass("tc-input-invalid", !ok);
+        };
+        t.setPlaceholder("e.g. your name").setValue(this.plugin.settings.myAuthorName);
+        flagValidity(this.plugin.settings.myAuthorName);
+        t.onChange(async (v) => {
+          flagValidity(v);
+          this.plugin.settings.myAuthorName = v.trim();
+          await this.plugin.saveSettings();
+        });
+      });
 
     new Setting(containerEl).setName("Finalize for publish — defaults").setHeading();
 

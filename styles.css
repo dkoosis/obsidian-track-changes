@@ -462,6 +462,11 @@
   color: var(--text-error);
 }
 
+/* Author-name setting: flag a value the parser can't read back as `<Name>:`. */
+.tc-input-invalid {
+  border-color: var(--text-error);
+}
+
 .tc-card-actions {
   display: flex;
   gap: 6px;

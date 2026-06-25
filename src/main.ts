@@ -29,6 +29,7 @@ import {
   type SourceEdit,
 } from "./operations";
 import { parse, selectionInCode } from "./parser";
+import { isValidAuthorName } from "./authors";
 import { diffToEdits } from "./diff";
 import { SuggestModeState } from "./suggest-mode";
 import { makeReadingPostProcessor } from "./reading";
@@ -455,7 +456,16 @@ export default class TrackChangesCriticMarkupPlugin extends Plugin {
     source: string,
     body: string,
   ): Promise<boolean> {
-    const edit = this.buildCommentEdit(source, from, to, body);
+    // Prefix the comment with the local author's name (cm-7) so it carries a
+    // stable identity the way an AI reviewer's `Claude:` prefix does. Empty
+    // name (the default) → unprefixed body, which renders as "You". The
+    // low-level builders stay settings-unaware; prefixing happens here, at the
+    // call site, where settings are in scope. Guard against a missing key
+    // (data.json drift) and only prefix a name the parser can read back — an
+    // invalid name would leak into the body and still render as "You".
+    const name = (this.settings.myAuthorName ?? "").trim();
+    const prefixed = name && isValidAuthorName(name) ? `${name}: ${body}` : body;
+    const edit = this.buildCommentEdit(source, from, to, prefixed);
     return this.applyEditsToFile(file, [edit], {
       requireAll: true,
       expectedSource: source,

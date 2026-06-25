@@ -15,7 +15,7 @@ const out = await build({
 });
 const code = out.outputFiles[0].text;
 const mod = await import("data:text/javascript;base64," + Buffer.from(code).toString("base64"));
-const { AUTHOR_RE, authorHueIndex } = mod;
+const { AUTHOR_RE, authorHueIndex, isValidAuthorName } = mod;
 
 function test(name, fn) {
   try {
@@ -40,6 +40,16 @@ test("AUTHOR_RE matches GPT-4:", () => {
   const m = "GPT-4: hi".match(AUTHOR_RE);
   assert.ok(m);
   assert.equal(m[1], "GPT-4");
+});
+
+test("AUTHOR_RE matches a human author prefix dk: (cm-7)", () => {
+  // The myAuthorName setting writes `{>>dk: hi<<}`; the same prefix grammar that
+  // names an AI reviewer must treat `dk` as a named author (not "You"), so a
+  // human's marks carry a stable identity. Asserts existing behavior — no
+  // parser change.
+  const m = "dk: hi".match(AUTHOR_RE);
+  assert.ok(m);
+  assert.equal(m[1], "dk");
 });
 
 test("AUTHOR_RE matches lowercased gpt:", () => {
@@ -79,6 +89,23 @@ test("AUTHOR_RE accepts TODO: as a false positive (documented)", () => {
   const m = "TODO: fix".match(AUTHOR_RE);
   assert.ok(m);
   assert.equal(m[1], "TODO");
+});
+
+test("isValidAuthorName accepts what AUTHOR_RE reads back (cm-7)", () => {
+  // Names that round-trip through the `<Name>:` prefix grammar. main.ts only
+  // prefixes a name this accepts, so an accepted name must also match AUTHOR_RE.
+  for (const name of ["dk", "Claude", "GPT-4", "gpt-4o", "a.b-c"]) {
+    assert.ok(isValidAuthorName(name), name);
+    assert.ok(`${name}: hi`.match(AUTHOR_RE), name);
+  }
+});
+
+test("isValidAuthorName rejects unparseable names (cm-7)", () => {
+  // Spaces, leading digit, empty, >30 chars: prefixing these would leak into
+  // the body and render as "You", so the call site drops them.
+  for (const name of ["John Doe", "4chan", "", "x".repeat(31)]) {
+    assert.equal(isValidAuthorName(name), false, JSON.stringify(name));
+  }
 });
 
 test("authorHueIndex pins Claude to 7 (red)", () => {

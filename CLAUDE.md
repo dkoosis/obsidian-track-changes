@@ -43,6 +43,15 @@ A thread is a run of `{>>…<<}` blocks with only inline whitespace (no blank li
 
 `src/settings.ts` holds `TrackChangesSettings`. The shape of this object is persisted via `loadData()` / `saveData()` — if you rename a key, write a migration in `loadSettings()` so existing users don't lose their config. Defaults are merged shallowly except `finalize`, which is merged one level deep — preserve that when adding nested setting groups.
 
+#### Author identity (`myAuthorName`)
+
+`myAuthorName` prefixes comments the local user writes from the panel as `{>>Name: …<<}`, reusing the same `<Name>:` grammar that identifies an AI reviewer (see Threading / `src/authors.ts`). Invariants:
+
+- **Additive setting, no migration.** The default is the empty string `""`; `loadSettings()` shallow-merges, so the absent key falls back to the default with no migration. Empty name → unprefixed body → renders as "You".
+- **Default stays empty.** Never ship a personal name in the default — a real name would leak into the upstream PR. The empty default is load-bearing.
+- **Prefix at the call site.** The low-level comment builders in `src/operations.ts` stay settings-unaware. The name is prepended in `main.applyCommentFromPanel` (the panel's new-comment path), where settings are in scope: `body = name && isValidAuthorName(name) ? name + ': ' + text : text`. Only a name the parser can read back is prefixed — `isValidAuthorName` (in `src/authors.ts`) is `AUTHOR_RE` anchored, so an invalid name (spaces, leading digit, >30 chars) is dropped rather than leaked into the body. The settings tab flags such a name with a red border. Edits stay non-overlapping and span-anchored (`expected`/`before`) regardless of the prefix.
+- **Non-goals (this slice).** No HTML-attribute metadata parser, no per-author identity store, no reply-path prefixing — replies build their body in `src/panel/view.ts` (`appendReply`) and are not wired here.
+
 ## Conventions
 
 - TypeScript strict, ES2018 target, CJS bundle (Obsidian requirement). External modules listed in `esbuild.config.mjs` — don't bundle `obsidian` or any `@codemirror/*` packages.
