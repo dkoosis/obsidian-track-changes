@@ -4,12 +4,15 @@ Review [CriticMarkup](http://criticmarkup.com/) suggestions in an Obsidian side 
 
 ![Track Changes panel showing multi-author comments from Claude and GPT](docs/screenshot.png)
 
-Intended for AI-assisted review: the agent leaves `{++…++}`, `{--…--}`, `{~~old~>new~~}`, `{>>comment<<}`, `{==highlight==}` in your note; you triage them here. A starting-point reviewer prompt lives at [`docs/SKILL.md`](https://github.com/philphilphil/obsidian-track-changes/blob/main/docs/SKILL.md). For *authoring* CriticMarkup yourself, see [Fevol/obsidian-criticmarkup](https://github.com/Fevol/obsidian-criticmarkup).
+Intended for AI-assisted review: the agent leaves `{++…++}`, `{--…--}`, `{~~old~>new~~}`, `{>>comment<<}`, `{==highlight==}` in your notes, you review them here. 
+
+[`docs/SKILL.md`](https://github.com/philphilphil/obsidian-track-changes/blob/main/docs/SKILL.md) is a starting-point reviewer skill you can hand your agent.
 
 ## Features
 
 - All five CriticMarkup forms with inline styling and a side-panel card per mark
 - Threaded comments (adjacent `{>>…<<}` blocks), multi-author colors
+- Per-mark metadata — `author="…" date="…"` prefixes on any mark drive the author colors and dates
 - Accept / reject per mark, reply inline, delete per message or thread
 - **Finalize for publish** — resolves all remaining markup in one pass
 - Reading mode: accepted preview or raw side-by-side

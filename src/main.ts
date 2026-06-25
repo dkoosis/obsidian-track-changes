@@ -26,10 +26,10 @@ import {
   snapOutOffset,
   beforeAnchor,
   validateHighlightContent,
+  sanitizeAuthorName,
   type SourceEdit,
 } from "./operations";
 import { parse, selectionInCode } from "./parser";
-import { isValidAuthorName } from "./authors";
 import { diffToEdits } from "./diff";
 import { SuggestModeState } from "./suggest-mode";
 import { makeReadingPostProcessor } from "./reading";
@@ -193,6 +193,9 @@ export default class TrackChangesCriticMarkupPlugin extends Plugin {
     this.settings = {
       ...DEFAULT_SETTINGS,
       ...stored,
+      // Coerce the persisted enum so a hand-edited / future-renamed value can't
+      // leak an invalid style downstream; anything but "datetime" means "date".
+      replyDateStyle: stored.replyDateStyle === "datetime" ? "datetime" : "date",
       finalize: { ...DEFAULT_SETTINGS.finalize, ...(stored.finalize ?? {}) },
     };
   }
@@ -215,6 +218,7 @@ export default class TrackChangesCriticMarkupPlugin extends Plugin {
       shouldOpenPanel: (event) =>
         this.settings.clickMarksToOpenPanel || event.metaKey || event.ctrlKey,
       highlightChangedChars: () => this.settings.highlightChangedChars,
+      localAuthorName: () => this.settings.localAuthorName ?? "",
     });
   }
 
@@ -231,6 +235,16 @@ export default class TrackChangesCriticMarkupPlugin extends Plugin {
     // repaint the active file's overlay if it's mid-suggest.
     const file = this.app.workspace.getActiveFile();
     if (file && file.extension === "md") this.syncSuggestOverlay(file);
+    this.getReviewView()?.rebuildCards();
+  }
+
+  /**
+   * Refresh every render surface after a settings change that affects display
+   * (e.g. localAuthorName). Re-runs reading-view post-processors and forces the
+   * open review panel to repaint so the "You"-fallback author/hue updates live.
+   */
+  refreshAfterSettingsChange(): void {
+    this.rerenderReadingViews();
     this.getReviewView()?.rebuildCards();
   }
 
@@ -259,6 +273,8 @@ export default class TrackChangesCriticMarkupPlugin extends Plugin {
       highlightChangedChars: () => this.settings.highlightChangedChars,
       isSuggesting: (file) => this.suggestMode.isActive(file.path),
       toggleSuggesting: (file) => this.toggleSuggestMode(file),
+      localAuthorName: () => this.settings.localAuthorName ?? "",
+      replyDateStyle: () => this.settings.replyDateStyle,
     };
     return new ReviewPanelView(leaf, host);
   }
@@ -456,16 +472,16 @@ export default class TrackChangesCriticMarkupPlugin extends Plugin {
     source: string,
     body: string,
   ): Promise<boolean> {
-    // Prefix the comment with the local author's name (cm-7) so it carries a
-    // stable identity the way an AI reviewer's `Claude:` prefix does. Empty
-    // name (the default) → unprefixed body, which renders as "You". The
-    // low-level builders stay settings-unaware; prefixing happens here, at the
-    // call site, where settings are in scope. Guard against a missing key
-    // (data.json drift) and only prefix a name the parser can read back — an
-    // invalid name would leak into the body and still render as "You".
-    const name = (this.settings.myAuthorName ?? "").trim();
-    const prefixed = name && isValidAuthorName(name) ? `${name}: ${body}` : body;
-    const edit = this.buildCommentEdit(source, from, to, prefixed);
+    // Stamp the comment with the local author's name (cm-7) via the `author="…"`
+    // attribute prefix — the same grammar replies use (see `appendReply`) and
+    // the model upstream #25 standardized. Empty name (the default) → no prefix,
+    // which renders as "You". The low-level builders stay settings-unaware; the
+    // prefix is built here, at the call site, where settings are in scope.
+    // `sanitizeAuthorName` strips chars that would break the quoted value, so a
+    // name can't corrupt the mark.
+    const name = sanitizeAuthorName((this.settings.localAuthorName ?? "").trim());
+    const metaPrefix = name ? `author="${name}"` : "";
+    const edit = this.buildCommentEdit(source, from, to, body, metaPrefix);
     return this.applyEditsToFile(file, [edit], {
       requireAll: true,
       expectedSource: source,
@@ -484,13 +500,14 @@ export default class TrackChangesCriticMarkupPlugin extends Plugin {
     from: number,
     to: number,
     body: string,
+    metaPrefix = "",
   ): SourceEdit {
     const nodes = parse(source).nodes;
     if (from !== to && !selectionOverlapsNodes(nodes, from, to)) {
-      return commentOnSelection(from, to, source.slice(from, to), body);
+      return commentOnSelection(from, to, source.slice(from, to), body, metaPrefix);
     }
     const at = from === to ? from : snapOutOffset(nodes, from, to) ?? to;
-    return commentAtPoint(at, body, beforeAnchor(source, at));
+    return commentAtPoint(at, body, beforeAnchor(source, at), metaPrefix);
   }
 
   // ---- editor edit application ----
