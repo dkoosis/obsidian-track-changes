@@ -10,6 +10,8 @@
     "importHelpers": true,
     "isolatedModules": true,
     "strict": true,
+    "noUncheckedIndexedAccess": true,
+    "noImplicitReturns": true,
     "esModuleInterop": true,
     "skipLibCheck": true,
     "lib": ["DOM", "ES5", "ES6", "ES7", "ES2018"]

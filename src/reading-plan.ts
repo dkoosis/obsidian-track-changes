@@ -53,7 +53,7 @@ export function intersectingOps(
 ): IntersectingOp[] {
   const out: IntersectingOp[] = [];
   for (let i = 0; i < parsed.nodes.length; i++) {
-    const n = parsed.nodes[i];
+    const n = parsed.nodes[i]!; // safe: i < parsed.nodes.length
     if (n.to <= secFrom || n.from >= secTo) continue;
     out.push({
       node: n,
@@ -80,6 +80,7 @@ export function commentsToIcon(
   const icons = new Set<number>();
   for (const thread of parsed.threads) {
     const root = parsed.nodes[thread.rootIndex];
+    if (root === undefined) continue;
     if (root.from >= secFrom && root.from < secTo) {
       icons.add(thread.rootIndex);
     }

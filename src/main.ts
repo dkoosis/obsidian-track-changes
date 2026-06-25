@@ -375,7 +375,7 @@ export default class TrackChangesCriticMarkupPlugin extends Plugin {
   private async openReviewPanel(): Promise<void> {
     const existing = this.app.workspace.getLeavesOfType(REVIEW_VIEW_TYPE);
     if (existing.length > 0) {
-      await this.app.workspace.revealLeaf(existing[0]);
+      await this.app.workspace.revealLeaf(existing[0]!); // safe: length > 0
       return;
     }
     const leaf = this.app.workspace.getRightLeaf(false);

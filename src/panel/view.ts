@@ -328,10 +328,11 @@ export class ReviewPanelView extends ItemView {
     const pairedHighlight = new Map<number, HighlightNode>(); // thread index -> highlight
     const consumedHighlights = new Set<number>(); // node index of paired highlights
     for (let t = 0; t < parsed.threads.length; t++) {
-      const h = adjacentHighlightForThread(parsed, source, parsed.threads[t]);
+      const thread = parsed.threads[t]!; // safe: t < parsed.threads.length
+      const h = adjacentHighlightForThread(parsed, source, thread);
       if (h) {
         pairedHighlight.set(t, h);
-        consumedHighlights.add(parsed.threads[t].rootIndex - 1);
+        consumedHighlights.add(thread.rootIndex - 1);
       }
     }
 
@@ -360,9 +361,12 @@ export class ReviewPanelView extends ItemView {
     const seenThreads = new Set<number>();
     let threadNumber = 0;
     for (let i = 0; i < parsed.nodes.length; i++) {
-      const n = parsed.nodes[i];
+      const n = parsed.nodes[i]!; // safe: i < parsed.nodes.length
       if (n.kind === "comment") {
         const tIdx = parsed.nodeThread[i];
+        if (tIdx === undefined || tIdx < 0) continue;
+        const thread = parsed.threads[tIdx];
+        if (thread === undefined) continue;
         if (seenThreads.has(tIdx)) continue;
         seenThreads.add(tIdx);
         threadNumber++;
@@ -371,7 +375,7 @@ export class ReviewPanelView extends ItemView {
           file,
           source,
           parsed,
-          parsed.threads[tIdx],
+          thread,
           threadNumber,
           pairedHighlight.get(tIdx) ?? null,
         );
@@ -797,7 +801,7 @@ export class ReviewPanelView extends ItemView {
       this.toggleCardCollapsed(n.from);
     });
 
-    const previewText = n.text.split(/\r?\n/, 1)[0].trim();
+    const previewText = n.text.split(/\r?\n/, 1)[0]!.trim(); // safe: split always yields >=1 element
     const preview = card.createDiv({ cls: "tc-card-preview" });
     preview.setText(previewText || "(empty)");
 
@@ -880,7 +884,7 @@ export class ReviewPanelView extends ItemView {
       this.toggleCardCollapsed(thread.from);
     });
 
-    const previewText = root.text.split(/\r?\n/, 1)[0].trim();
+    const previewText = root.text.split(/\r?\n/, 1)[0]!.trim(); // safe: split always yields >=1 element
     const preview = card.createDiv({ cls: "tc-thread-preview" });
     preview.setText(previewText || "(empty)");
   }
