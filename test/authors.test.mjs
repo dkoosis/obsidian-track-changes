@@ -42,6 +42,16 @@ test("AUTHOR_RE matches GPT-4:", () => {
   assert.equal(m[1], "GPT-4");
 });
 
+test("AUTHOR_RE matches a human author prefix dk: (cm-7)", () => {
+  // The myAuthorName setting writes `{>>dk: hi<<}`; the same prefix grammar that
+  // names an AI reviewer must treat `dk` as a named author (not "You"), so a
+  // human's marks carry a stable identity. Asserts existing behavior — no
+  // parser change.
+  const m = "dk: hi".match(AUTHOR_RE);
+  assert.ok(m);
+  assert.equal(m[1], "dk");
+});
+
 test("AUTHOR_RE matches lowercased gpt:", () => {
   const m = "gpt: hi".match(AUTHOR_RE);
   assert.ok(m);

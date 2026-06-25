@@ -29,6 +29,13 @@ export interface TrackChangesCriticMarkupSettings {
    * emphasis.
    */
   highlightChangedChars: boolean;
+  /**
+   * Your author name, prefixed onto comments you write from the panel as
+   * `{>>Name: …<<}`. Empty by default — an unprefixed comment renders as
+   * "You" (the local user). Set this so your marks carry a stable identity
+   * the way an AI reviewer's `Claude:` / `GPT:` prefix does.
+   */
+  myAuthorName: string;
   /** Defaults that pre-populate the Finalize dialog. */
   finalize: FinalizeOptions;
 }
@@ -39,6 +46,7 @@ export const DEFAULT_SETTINGS: TrackChangesCriticMarkupSettings = {
   clickMarksToOpenPanel: false,
   confirmBeforeDelete: true,
   highlightChangedChars: true,
+  myAuthorName: "",
   finalize: { ...DEFAULT_FINALIZE },
 };
 
@@ -114,6 +122,21 @@ export class TrackChangesCriticMarkupSettingsTab extends PluginSettingTab {
           this.plugin.settings.confirmBeforeDelete = v;
           await this.plugin.saveSettings();
         }),
+      );
+
+    new Setting(containerEl)
+      .setName("Author name")
+      .setDesc(
+        "Prefixes comments you write from the panel as {>>Name: …<<}. Leave empty to stay anonymous — unprefixed comments render as \"You\".",
+      )
+      .addText((t) =>
+        t
+          .setPlaceholder("e.g. your name")
+          .setValue(this.plugin.settings.myAuthorName)
+          .onChange(async (v) => {
+            this.plugin.settings.myAuthorName = v.trim();
+            await this.plugin.saveSettings();
+          }),
       );
 
     new Setting(containerEl).setName("Finalize for publish — defaults").setHeading();
