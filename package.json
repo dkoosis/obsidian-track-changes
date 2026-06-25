@@ -1,7 +1,7 @@
 {
   "name": "obsidian-track-changes",
-  "version": "0.1.0",
-  "description": "Review CriticMarkup suggestions from an AI (or any external editor) in a side panel.",
+  "version": "1.6.0",
+  "description": "Review CriticMarkup suggestions in a side panel. Accept, reject, or reply.",
   "main": "main.js",
   "repository": {
     "type": "git",
@@ -17,7 +17,7 @@
     "test:e2e:android": "wdio run ./wdio.mobile.conf.mts"
   },
   "keywords": [],
-  "author": "philphilphil",
+  "author": "Phil Baum",
   "license": "MIT",
   "devDependencies": {
     "@codemirror/state": "6.5.0",
