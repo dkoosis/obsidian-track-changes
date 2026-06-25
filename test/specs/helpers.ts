@@ -109,3 +109,19 @@ export async function readNote(path: string): Promise<string> {
     return app.vault.read(file);
   }, path);
 }
+
+/**
+ * Set the active markdown editor's selection by source offsets, and focus it —
+ * this is what `comment-on-selection` reads via `editor.getCursor`. A collapsed
+ * selection (from === to) drives the cursor-point degrade path. The command
+ * captures the offsets synchronously before it activates the panel, so focus
+ * stealing afterwards is harmless.
+ */
+export async function setSelection(from: number, to: number): Promise<void> {
+  await browser.executeObsidian(({ app }, range: { from: number; to: number }) => {
+    const editor = (app.workspace as any).activeEditor?.editor;
+    if (!editor) throw new Error("no active markdown editor to select in");
+    editor.focus();
+    editor.setSelection(editor.offsetToPos(range.from), editor.offsetToPos(range.to));
+  }, { from, to });
+}
