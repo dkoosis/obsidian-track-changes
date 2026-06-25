@@ -11,7 +11,7 @@ npm install              # one-time
 npm run dev              # esbuild watch -> main.js (with inline sourcemaps)
 npm run build            # tsc --noEmit + esbuild production bundle
 npm run typecheck        # tsc --noEmit -skipLibCheck
-npm test                 # runs every .mjs test file sequentially
+npm test                 # runs each configured .mjs test file sequentially (list in package.json)
 node test/parser.test.mjs        # run a single test file
 ```
 
