@@ -33,6 +33,15 @@ async function load(rel) {
 const { parse } = await load("../src/parser.ts");
 const { removeHighlight, deleteCommentNode, applyEdits } = await load("../src/operations.ts");
 
+// authorName for a comment, or null when no recognised <Name>: prefix. Helper
+// so the author-edge cases below read against the *real* parse() contract, not
+// the AUTHOR_RE regex in isolation (that lives in authors.test.mjs).
+function authorOf(src) {
+  const r = parse(src);
+  const c = r.nodes.find((n) => n.kind === "comment");
+  return c ? c.authorName : undefined;
+}
+
 function test(name, fn) {
   try {
     fn();
@@ -138,4 +147,158 @@ test("(e) {==sel==}{>>body<<} is two adjacent nodes restored to clean text", () 
   const edits = [removeHighlight(first), deleteCommentNode(second)];
   const out = applyEdits(src, edits);
   assert.equal(out, "sel");
+});
+
+// (f) Thread adjacency seam (otc-859 axis-2). Grouping rule (parser.ts:297) is
+// `/^[ \t]*$/` over the gap between two {>>…<<} markers — ONLY inline spaces or
+// tabs make a reply. A newline, CRLF, blank line, or any prose splits them into
+// separate threads. CRLF is the dangerous case: `\r` is not in `[ \t]`, so a
+// CRLF gap must split. Pin it so a future "be lenient about whitespace" change
+// can't silently merge comments across a line boundary (which would let a chip
+// widget swallow the text between them).
+test("(f) two comments with a space gap form ONE thread (root + reply)", () => {
+  const r = parse("{>>root<<} {>>reply<<}");
+  assert.equal(r.threads.length, 1);
+  assert.equal(r.threads[0].replyIndexes.length, 1);
+  assert.equal(r.nodeThread[0], 0);
+  assert.equal(r.nodeThread[1], 0);
+});
+
+test("(f) two comments with a tab gap form ONE thread", () => {
+  const r = parse("{>>root<<}\t{>>reply<<}");
+  assert.equal(r.threads.length, 1);
+  assert.equal(r.threads[0].replyIndexes.length, 1);
+});
+
+test("(f) LF between two comments SPLITS into two threads", () => {
+  const r = parse("{>>a<<}\n{>>b<<}");
+  assert.equal(r.threads.length, 2);
+  assert.equal(r.threads[0].replyIndexes.length, 0);
+  assert.equal(r.threads[1].replyIndexes.length, 0);
+});
+
+test("(f) CRLF between two comments SPLITS into two threads (\\r not whitespace-grouped)", () => {
+  const r = parse("{>>a<<}\r\n{>>b<<}");
+  assert.equal(r.threads.length, 2, "CRLF gap must not group comments into one thread");
+  assert.equal(r.threads[0].replyIndexes.length, 0);
+  assert.equal(r.threads[1].replyIndexes.length, 0);
+});
+
+test("(f) a lone CR between two comments SPLITS into two threads", () => {
+  const r = parse("{>>a<<}\r{>>b<<}");
+  assert.equal(r.threads.length, 2, "bare CR gap must not group comments");
+});
+
+test("(f) blank line between two comments SPLITS into two threads", () => {
+  const r = parse("{>>a<<}\n\n{>>b<<}");
+  assert.equal(r.threads.length, 2);
+});
+
+test("(f) trailing-space-then-CRLF gap still SPLITS (mixed inline + line break)", () => {
+  // A reply requires the WHOLE gap to be inline whitespace. " \r\n" contains a
+  // line break, so it must not group even though it starts with a space.
+  const r = parse("{>>a<<} \r\n{>>b<<}");
+  assert.equal(r.threads.length, 2);
+});
+
+test("(f) prose between two comments SPLITS into two threads", () => {
+  const r = parse("{>>a<<} and {>>b<<}");
+  assert.equal(r.threads.length, 2);
+});
+
+// (g) Author-prefix detection through parse() -> CommentNode.authorName. The raw
+// regex is unit-tested in authors.test.mjs; here we pin the *parser-visible*
+// contract (otc-859 author edges): which prefixes surface a name vs fall back to
+// null (rendered "You"). AUTHOR_RE = /^\s*([A-Za-z][\w.-]{0,29})\s*:\s*/.
+test("(g) author prefix: lowercase name is captured verbatim (original casing)", () => {
+  assert.equal(authorOf("{>>gpt: hi<<}"), "gpt");
+});
+
+test("(g) author prefix: trailing space before the colon still matches", () => {
+  // `\s*:` is permissive about space before the colon for a single-token name.
+  assert.equal(authorOf("{>>Claude : hi<<}"), "Claude");
+});
+
+test("(g) author prefix: no space after the colon still matches", () => {
+  assert.equal(authorOf("{>>Claude:hi<<}"), "Claude");
+});
+
+test("(g) author prefix: name of exactly 30 chars is captured", () => {
+  const name = "a".repeat(30);
+  assert.equal(authorOf(`{>>${name}: hi<<}`), name);
+});
+
+test("(g) author prefix: name longer than 30 chars => null (renders 'You')", () => {
+  const name = "a".repeat(31);
+  assert.equal(authorOf(`{>>${name}: hi<<}`), null);
+});
+
+test("(g) author prefix: underscore-LEADING name => null (must be alpha-leading)", () => {
+  assert.equal(authorOf("{>>_foo: hi<<}"), null);
+});
+
+test("(g) author prefix: underscore WITHIN an alpha-leading name is captured", () => {
+  // `\w` includes `_`, so it's legal inside the token — only the lead must be alpha.
+  assert.equal(authorOf("{>>foo_bar: hi<<}"), "foo_bar");
+});
+
+test("(g) author prefix: digit-leading name => null", () => {
+  assert.equal(authorOf("{>>4chan: hi<<}"), null);
+});
+
+test("(g) author prefix: multi-word phrase before colon => null", () => {
+  assert.equal(authorOf("{>>see line 4: bad<<}"), null);
+});
+
+test("(g) author prefix: empty body => authorName null", () => {
+  assert.equal(authorOf("{>><<}"), null);
+});
+
+// (h) CriticMarkup at code-region boundaries (otc-859 code-boundary). A marker
+// whose endpoints sit inside a code span/fence is inert (E10). These pin the
+// BOUNDARY positions — markup hugging the very start/end of an inline span, and
+// abutting a fence's opening/closing line — to guard the off-by-one seam where
+// "just inside" vs "just outside" code is decided.
+test("(h) markup flush against the inside edge of an inline span is inert", () => {
+  // No space between the backtick and the marker on either side.
+  const r = parse("text `{++x++}` more");
+  assert.equal(r.nodes.length, 0, "marker wholly inside an inline span yields no node");
+});
+
+test("(h) markup immediately AFTER a closing backtick parses", () => {
+  const src = "a `code`{++real++} b";
+  const r = parse(src);
+  assert.equal(r.nodes.length, 1);
+  assert.equal(r.nodes[0].kind, "addition");
+  assert.equal(r.nodes[0].text, "real");
+});
+
+test("(h) markup immediately BEFORE an opening backtick parses", () => {
+  const src = "a {++real++}`code` b";
+  const r = parse(src);
+  assert.equal(r.nodes.length, 1);
+  assert.equal(r.nodes[0].text, "real");
+});
+
+test("(h) markup on the line directly after a fence closer parses", () => {
+  const src = "```\ncode\n```\n{++real++}";
+  const r = parse(src);
+  assert.equal(r.nodes.length, 1);
+  assert.equal(r.nodes[0].text, "real");
+});
+
+test("(h) markup on the line directly before a fence opener parses", () => {
+  const src = "{++real++}\n```\ncode\n```";
+  const r = parse(src);
+  assert.equal(r.nodes.length, 1);
+  assert.equal(r.nodes[0].text, "real");
+});
+
+test("(h) marker on the fence's opening line (after the info string) is inert", () => {
+  // The opener line is part of the code region's boundary; a marker riding on it
+  // must not parse, while real prose after the close still does.
+  const src = "```js {++fake++}\ncode\n```\n{++real++}";
+  const r = parse(src);
+  assert.equal(r.nodes.length, 1);
+  assert.equal(r.nodes[0].text, "real");
 });
