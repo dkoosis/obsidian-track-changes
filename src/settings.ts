@@ -139,10 +139,17 @@ export class TrackChangesCriticMarkupSettingsTab extends PluginSettingTab {
         // Keep the in-memory value fresh every keystroke, but debounce the disk
         // write + full re-render (all reading views + panel rebuild) so typing a
         // name doesn't thrash the UI.
-        const persist = debounce(async () => {
-          await this.plugin.saveSettings();
-          this.plugin.refreshAfterSettingsChange();
-        }, 500);
+        // resetTimer=true: each keystroke restarts the 500ms window, so the
+        // write + re-render fire once after typing settles, not periodically
+        // mid-input (matches the panel's rerender debounce in view.ts).
+        const persist = debounce(
+          async () => {
+            await this.plugin.saveSettings();
+            this.plugin.refreshAfterSettingsChange();
+          },
+          500,
+          true,
+        );
         return t
           .setPlaceholder("You")
           .setValue(this.plugin.settings.localAuthorName)
