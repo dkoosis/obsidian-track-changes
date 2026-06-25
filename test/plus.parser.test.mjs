@@ -196,6 +196,40 @@ test("byte-equality: highlight body excludes prefix", () => {
 });
 
 // ---------------------------------------------------------------------------
+// Addressing (@Name:) coexists with attribution attrs (cm-1.6).
+// Decision: keep @Name: as a body convention; resolution `status=` is NOT
+// modeled (a mark's presence is its unresolved state). The parser stays
+// open-world — it reads any key harmlessly — but no key carries lifecycle.
+// ---------------------------------------------------------------------------
+
+test("author=/date= prefix coexists with an @Name: addressing body", () => {
+  const src = '{author="dk" date="2026-06-25">>@Claude: rewrite<<}';
+  const r = parse(src);
+  const n = r.nodes[0];
+  assert.equal(n.kind, "comment");
+  assert.equal(n.metaAuthor, "dk"); // attribution from the attr prefix
+  assert.equal(n.metaDate, "2026-06-25");
+  assert.equal(n.text, "@Claude: rewrite"); // addressing stays in the body
+  assert.equal(n.authorName, null); // a leading @ is not a valid author token
+  assert.equal(src.slice(n.innerFrom, n.innerTo), "@Claude: rewrite");
+  assertNoPrefixBleed(n);
+});
+
+test("an unrecognised key (status) is read open-world but is inert data", () => {
+  // We don't bless status as resolution state; the parser must still not choke
+  // on it. It lands in metaAttrs like any key, and nothing routes on it.
+  const src = '{status="open">>@Claude: ping<<}';
+  const r = parse(src);
+  const n = r.nodes[0];
+  assert.equal(n.kind, "comment");
+  assert.equal(n.metaAttrs.status, "open"); // carried, lowercased key
+  assert.equal(n.metaAuthor, null); // not attribution
+  assert.equal(n.text, "@Claude: ping");
+  assert.equal(n.authorName, null);
+  assertNoPrefixBleed(n);
+});
+
+// ---------------------------------------------------------------------------
 // Corruption guards (the central R1/R2 vectors).
 // ---------------------------------------------------------------------------
 

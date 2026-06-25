@@ -31,7 +31,10 @@ export interface BaseNode {
    * Every metadata `key="value"` pair from the prefix — keys lowercased, values
    * trimmed, empty values dropped, first occurrence of a key wins. `author`/
    * `date` are surfaced as `metaAuthor`/`metaDate`; this map also carries any
-   * future key (status, source, …) with no further parser change.
+   * future provenance key (source, …) with no further parser change. The
+   * map is open-world (it reads any key harmlessly), but no key carries
+   * lifecycle/resolution state: a mark's *presence* is its unresolved state —
+   * resolving deletes the markup, there is no sidecar — so `status=` is not modeled.
    */
   metaAttrs: Record<string, string>;
   /** Exact prefix substring consumed (e.g. `author="Claude" date="2026-06-14"`), "" if none. */
