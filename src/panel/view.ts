@@ -245,9 +245,9 @@ export class ReviewPanelView extends ItemView {
    * invocation, handed back as `expectedSource` on submit so the write survives
    * drift via rebaseEdits. The card renders at the top of the panel, focused.
    */
-  beginComment(file: TFile, from: number, to: number, source: string): void {
+  beginComment(file: TFile, from: number, to: number, source: string, prefill = ""): void {
     this.currentFile = file;
-    this.pendingComment = { from, to, source, selected: source.slice(from, to), body: "" };
+    this.pendingComment = { from, to, source, selected: source.slice(from, to), body: prefill };
     this.focusComposer = true;
     void this.refresh(source, true);
   }
@@ -500,7 +500,13 @@ export class ReviewPanelView extends ItemView {
     cancelBtn.addEventListener("click", () => this.cancelComposer());
     if (this.focusComposer) {
       this.focusComposer = false;
-      window.setTimeout(() => ta.focus(), 0);
+      window.setTimeout(() => {
+        ta.focus();
+        // Park the caret after a seeded prefix (e.g. "@Claude: ") so typing
+        // continues the request instead of overwriting it.
+        const end = ta.value.length;
+        ta.setSelectionRange(end, end);
+      }, 0);
     }
   }
 

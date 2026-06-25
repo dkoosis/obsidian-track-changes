@@ -37,6 +37,14 @@ import {
   type TrackChangesCriticMarkupSettings,
 } from "./settings";
 
+/**
+ * The reviewing assistant's handle, used by the "Add a comment for the
+ * assistant" command to seed an `@<name>:` address into the composer. Plain body
+ * text (no parser/routing behind it) — the companion finds its inbox with
+ * `rg '@Claude:'`. Change this if your reviewer answers to another name.
+ */
+const ASSISTANT_NAME = "Claude";
+
 export default class TrackChangesCriticMarkupPlugin extends Plugin {
   settings!: TrackChangesCriticMarkupSettings;
 
@@ -89,6 +97,19 @@ export default class TrackChangesCriticMarkupPlugin extends Plugin {
         if (!file) return false;
         if (checking) return true;
         void this.commentOnSelectionFlow(editor, file);
+        return true;
+      },
+    });
+    // Same composer, pre-seeded with `@Claude:` so the comment is addressed to
+    // the reviewing assistant — the convention it greps for as its inbox.
+    this.addCommand({
+      id: "comment-for-assistant",
+      name: `Add a comment for ${ASSISTANT_NAME}`,
+      editorCheckCallback: (checking, editor, ctx) => {
+        const file = ctx.file;
+        if (!file) return false;
+        if (checking) return true;
+        void this.commentOnSelectionFlow(editor, file, `@${ASSISTANT_NAME}: `);
         return true;
       },
     });
@@ -431,8 +452,15 @@ export default class TrackChangesCriticMarkupPlugin extends Plugin {
    * selection that overlaps an existing mark, which can't nest inline
    * (otc-785). Otherwise a collapsed cursor or whitespace-only selection inserts
    * a bare point-comment (Decision C), and a clean range gets wrapped.
+   *
+   * `prefill` seeds the composer body (e.g. `@Claude: ` for the address-to-
+   * assistant command); the caret parks after it so the user types the request.
    */
-  private async commentOnSelectionFlow(editor: Editor, file: TFile): Promise<void> {
+  private async commentOnSelectionFlow(
+    editor: Editor,
+    file: TFile,
+    prefill = "",
+  ): Promise<void> {
     const source = editor.getValue();
     const from = editor.posToOffset(editor.getCursor("from"));
     const to = editor.posToOffset(editor.getCursor("to"));
@@ -467,7 +495,7 @@ export default class TrackChangesCriticMarkupPlugin extends Plugin {
       new Notice("Could not open review panel.");
       return;
     }
-    view.beginComment(file, from, to, source);
+    view.beginComment(file, from, to, source, prefill);
   }
 
   /**

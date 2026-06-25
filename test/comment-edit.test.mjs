@@ -94,4 +94,28 @@ function ok(name) {
   ok("containing selection -> null (refused)");
 }
 
+// 6. addressed comment (otc-or6): the "Add a comment for Claude" command seeds
+// an `@Claude:` body + the author prefix. The address token is plain body text —
+// it must survive into the mark verbatim (no stripping), on both the wrap and
+// the point path, and the mark must parse back with the author attributed.
+{
+  const src = "the quick brown fox";
+  const from = src.indexOf("brown");
+  const e = buildCommentEdit(parse(src).nodes, src, from, from + "brown".length, '@Claude: fix this', 'author="dk"');
+  const out = applyEdits(src, [e]);
+  assert.equal(out, 'the quick {==brown==}{author="dk">>@Claude: fix this<<} fox');
+  const node = parse(out).nodes.find((n) => n.metaAuthor === "dk");
+  assert.ok(node, "addressed comment must parse with metaAuthor dk");
+  assert.ok(node.text.includes("@Claude:"), "address token must stay in the body");
+  ok("addressed wrap -> {==sel==}{author=...>>@Claude: ...<<}");
+}
+{
+  const src = "the quick brown fox";
+  const at = src.indexOf("brown");
+  const e = buildCommentEdit(parse(src).nodes, src, at, at, '@Claude: explain', 'author="dk"');
+  const out = applyEdits(src, [e]);
+  assert.equal(out, 'the quick {author="dk">>@Claude: explain<<}brown fox');
+  ok("addressed point -> {author=...>>@Claude: ...<<}");
+}
+
 console.log(`\ncomment-edit: ${pass} passed`);

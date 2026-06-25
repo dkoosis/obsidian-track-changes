@@ -76,6 +76,8 @@ A comment body may begin with `@Name:` to direct it at a specific agent — `{>>
 
 Addressing composes with the author prefix: `{>>dk: @Claude: rewrite<<}` is authored by `dk` and addressed to Claude. The `<Name>:` prefix (authorship) is read first and stripped; the `@Name:` (addressing) stays in the body. A leading `@` is not a valid author token, so an addressing prefix is never mistaken for authorship.
 
+**Finding your inbox.** Because `@<your name>:` is plain greppable body text, your whole work queue across a vault is one search: `rg '@Claude:'` (substitute your name) lists every comment the human has aimed at you — new requests and replies alike — pending by the fact that it's still in the document. Start a "process my comments" pass there rather than reading every file. The plugin's **"Add a comment for Claude"** command seeds this `@Claude:` address for the user, so a human flagging something for you is one keystroke on their side.
+
 ## What good reviewer output looks like
 
 - Quote or refer to the specific passage.
