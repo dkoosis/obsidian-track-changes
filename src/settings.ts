@@ -1,7 +1,7 @@
-import { App, PluginSettingTab, Setting } from "obsidian";
+import { App, PluginSettingTab, Setting, debounce } from "obsidian";
 import type TrackChangesCriticMarkupPlugin from "./main";
-import { isValidAuthorName } from "./authors";
 import { DEFAULT_FINALIZE, type FinalizeOptions } from "./operations";
+import type { ReplyDateStyle } from "./operations";
 
 export interface TrackChangesCriticMarkupSettings {
   /**
@@ -31,12 +31,16 @@ export interface TrackChangesCriticMarkupSettings {
    */
   highlightChangedChars: boolean;
   /**
-   * Your author name, prefixed onto comments you write from the panel as
-   * `{>>Name: …<<}`. Empty by default — an unprefixed comment renders as
-   * "You" (the local user). Set this so your marks carry a stable identity
-   * the way an AI reviewer's `Claude:` / `GPT:` prefix does.
+   * The local user's display name for authored marks. Two roles, both optional:
+   *   1. Display fallback — a mark with no `author=` and no legacy `<Name>:`
+   *      renders as this name. Empty string is the sentinel for "You".
+   *   2. Reply stamping — when non-empty, replies the plugin writes carry
+   *      `author=<name>`; empty ⇒ replies carry only `date=` and render as "You".
    */
-  myAuthorName: string;
+  localAuthorName: string;
+  /** Whether plugin-written replies stamp a date ("date", default) or a full
+   *  second-precision ISO timestamp ("datetime"). Display-only either way. */
+  replyDateStyle: ReplyDateStyle;
   /** Defaults that pre-populate the Finalize dialog. */
   finalize: FinalizeOptions;
 }
@@ -47,7 +51,8 @@ export const DEFAULT_SETTINGS: TrackChangesCriticMarkupSettings = {
   clickMarksToOpenPanel: false,
   confirmBeforeDelete: true,
   highlightChangedChars: true,
-  myAuthorName: "",
+  localAuthorName: "",
+  replyDateStyle: "date",
   finalize: { ...DEFAULT_FINALIZE },
 };
 
@@ -126,27 +131,40 @@ export class TrackChangesCriticMarkupSettingsTab extends PluginSettingTab {
       );
 
     new Setting(containerEl)
-      .setName("Author name")
+      .setName("Your name")
       .setDesc(
-        "Prefixes comments you write from the panel as {>>Name: …<<}. Leave empty to stay anonymous — unprefixed comments render as \"You\".",
+        "Display name stamped on replies you write and used as the author fallback for unattributed marks. Leave blank to appear as \"You\".",
       )
       .addText((t) => {
-        // Flag a name the parser can't read back (spaces, leading digit, >30
-        // chars): it would be dropped rather than prefixed, silently rendering
-        // as "You". The red border tells the user why their name isn't sticking.
-        const flagValidity = (val: string) => {
-          const trimmed = val.trim();
-          const ok = !trimmed || isValidAuthorName(trimmed);
-          t.inputEl.toggleClass("tc-input-invalid", !ok);
-        };
-        t.setPlaceholder("e.g. your name").setValue(this.plugin.settings.myAuthorName);
-        flagValidity(this.plugin.settings.myAuthorName);
-        t.onChange(async (v) => {
-          flagValidity(v);
-          this.plugin.settings.myAuthorName = v.trim();
+        // Keep the in-memory value fresh every keystroke, but debounce the disk
+        // write + full re-render (all reading views + panel rebuild) so typing a
+        // name doesn't thrash the UI.
+        const persist = debounce(async () => {
           await this.plugin.saveSettings();
-        });
+          this.plugin.refreshAfterSettingsChange();
+        }, 500);
+        return t
+          .setPlaceholder("You")
+          .setValue(this.plugin.settings.localAuthorName)
+          .onChange((v) => {
+            this.plugin.settings.localAuthorName = v.trim();
+            persist();
+          });
       });
+
+    new Setting(containerEl)
+      .setName("Reply date style")
+      .setDesc("How replies you write stamp the date. Display-only.")
+      .addDropdown((d) =>
+        d
+          .addOption("date", "Date (2026-06-14)")
+          .addOption("datetime", "Timestamp (2026-06-14T12:23:46Z)")
+          .setValue(this.plugin.settings.replyDateStyle)
+          .onChange(async (v) => {
+            this.plugin.settings.replyDateStyle = v as ReplyDateStyle;
+            await this.plugin.saveSettings();
+          }),
+      );
 
     new Setting(containerEl).setName("Finalize for publish — defaults").setHeading();
 

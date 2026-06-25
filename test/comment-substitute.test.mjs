@@ -76,6 +76,34 @@ test("commentAtPoint is a zero-width insertion anchored by before", () => {
   });
 });
 
+test("commentOnSelection stamps the author= prefix on the comment mark (cm-7 re-target)", () => {
+  // After the upstream #25 sync, panel-authored comments carry attribution as an
+  // `author="…"` prefix outside the `>>` delimiters, not a `<Name>:` body prefix.
+  const edit = commentOnSelection(2, 6, "word", "nice", 'author="dk"');
+  assert.deepEqual(edit, {
+    from: 2,
+    to: 6,
+    insert: '{==word==}{author="dk">>nice<<}',
+    expected: "word",
+  });
+});
+
+test("commentAtPoint stamps the author= prefix on the bare comment (cm-7 re-target)", () => {
+  const edit = commentAtPoint(10, "a note", "line prefix", 'author="dk"');
+  assert.deepEqual(edit, {
+    from: 10,
+    to: 10,
+    insert: '{author="dk">>a note<<}',
+    expected: "",
+    before: "line prefix",
+  });
+});
+
+test("empty metaPrefix leaves the comment unattributed (default path)", () => {
+  assert.equal(commentAtPoint(0, "x", "p").insert, "{>>x<<}");
+  assert.equal(commentOnSelection(0, 1, "a", "x").insert, "{==a==}{>>x<<}");
+});
+
 test("substituteSelection wraps old~>new, anchors the old span", () => {
   const edit = substituteSelection(0, 3, "cat", "dog");
   assert.deepEqual(edit, {
