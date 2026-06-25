@@ -12,6 +12,17 @@
 
 export const AUTHOR_RE = /^\s*([A-Za-z][\w.-]{0,29})\s*:\s*/;
 
+// AUTHOR_RE anchored as a whole-string match: the token rule with no
+// surrounding prefix/colon. A name that fails this must not be prefixed onto a
+// comment — the parser wouldn't recognise it as `<Name>:`, so it would leak
+// into the body and render as "You".
+const VALID_AUTHOR_RE = /^[A-Za-z][\w.-]{0,29}$/;
+
+/** True if `name` is a token the parser will recognise as a `<Name>:` author. */
+export function isValidAuthorName(name: string): boolean {
+  return VALID_AUTHOR_RE.test(name);
+}
+
 // Hue indices match --tc-author-hue-N in styles.css:
 //   0 blue, 1 purple, 2 green, 3 orange, 4 pink, 5 teal, 6 yellow, 7 red.
 // Indices 4 and 6 are unused by KNOWN_AUTHORS — they remain available for the hash fallback.

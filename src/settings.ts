@@ -1,5 +1,6 @@
 import { App, PluginSettingTab, Setting } from "obsidian";
 import type TrackChangesCriticMarkupPlugin from "./main";
+import { isValidAuthorName } from "./authors";
 import { DEFAULT_FINALIZE, type FinalizeOptions } from "./operations";
 
 export interface TrackChangesCriticMarkupSettings {
@@ -129,15 +130,23 @@ export class TrackChangesCriticMarkupSettingsTab extends PluginSettingTab {
       .setDesc(
         "Prefixes comments you write from the panel as {>>Name: …<<}. Leave empty to stay anonymous — unprefixed comments render as \"You\".",
       )
-      .addText((t) =>
-        t
-          .setPlaceholder("e.g. your name")
-          .setValue(this.plugin.settings.myAuthorName)
-          .onChange(async (v) => {
-            this.plugin.settings.myAuthorName = v.trim();
-            await this.plugin.saveSettings();
-          }),
-      );
+      .addText((t) => {
+        // Flag a name the parser can't read back (spaces, leading digit, >30
+        // chars): it would be dropped rather than prefixed, silently rendering
+        // as "You". The red border tells the user why their name isn't sticking.
+        const flagValidity = (val: string) => {
+          const trimmed = val.trim();
+          const ok = !trimmed || isValidAuthorName(trimmed);
+          t.inputEl.toggleClass("tc-input-invalid", !ok);
+        };
+        t.setPlaceholder("e.g. your name").setValue(this.plugin.settings.myAuthorName);
+        flagValidity(this.plugin.settings.myAuthorName);
+        t.onChange(async (v) => {
+          flagValidity(v);
+          this.plugin.settings.myAuthorName = v.trim();
+          await this.plugin.saveSettings();
+        });
+      });
 
     new Setting(containerEl).setName("Finalize for publish — defaults").setHeading();
 
