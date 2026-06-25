@@ -329,7 +329,12 @@ export default class TrackChangesCriticMarkupPlugin extends Plugin {
       return false;
     }
     const current = this.currentTextFor(file);
-    const edits = diffToEdits(baseline, current);
+    // Stamp every materialized edit with the local author's name via the
+    // `author="…"` prefix — same grammar comments/replies use (see
+    // `applyCommentFromPanel`). Empty name (the default) → bare marks → "You".
+    const name = sanitizeAuthorName((this.settings.localAuthorName ?? "").trim());
+    const metaPrefix = name ? `author="${name}"` : "";
+    const edits = diffToEdits(baseline, current, metaPrefix);
     if (edits.length === 0) return true; // no change — clean exit, no write
     return this.applyEditsToFile(file, edits, { requireAll: true });
   }

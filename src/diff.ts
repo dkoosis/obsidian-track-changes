@@ -281,22 +281,31 @@ function diffBlocks(baseline: string, current: string): DiffBlock[] {
  * separated by at least one unchanged token), each carrying `expected` (and
  * `before` for the point-insertion that represents a deletion) so they survive
  * `rebaseEdit`. Identical inputs yield `[]`.
+ *
+ * `metaPrefix` is the optional attribute prefix (`author="…"`) spliced between
+ * the opening `{` and the kind-sigil on every materialized mark — the same
+ * placement the comment builders use — so a suggest-mode author stamps every
+ * edit they commit. Empty (the default) yields bare marks.
  */
-export function diffToEdits(baseline: string, current: string): SourceEdit[] {
+export function diffToEdits(
+  baseline: string,
+  current: string,
+  metaPrefix = "",
+): SourceEdit[] {
   const edits: SourceEdit[] = [];
   for (const b of diffBlocks(baseline, current)) {
     if (b.old && b.new) {
       edits.push({
         from: b.from,
         to: b.from + b.new.length,
-        insert: `{~~${b.old}~>${b.new}~~}`,
+        insert: `{${metaPrefix}~~${b.old}~>${b.new}~~}`,
         expected: b.new,
       });
     } else if (b.new) {
       edits.push({
         from: b.from,
         to: b.from + b.new.length,
-        insert: `{++${b.new}++}`,
+        insert: `{${metaPrefix}++${b.new}++}`,
         expected: b.new,
       });
     } else {
@@ -305,7 +314,7 @@ export function diffToEdits(baseline: string, current: string): SourceEdit[] {
       edits.push({
         from: b.from,
         to: b.from,
-        insert: `{--${b.old}--}`,
+        insert: `{${metaPrefix}--${b.old}--}`,
         expected: "",
         before: beforeAnchor(current, b.from),
       });

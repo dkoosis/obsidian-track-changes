@@ -250,4 +250,78 @@ test("fuzz: 400 random baseline/current pairs round-trip both directions", () =>
   }
 });
 
+// --- author stamping (otc-deq) -------------------------------------------
+// The commit call site passes a `metaPrefix` (built from localAuthorName) so a
+// suggest-mode author tags every materialized edit. The prefix sits between `{`
+// and the sigil, parses back as metaAuthor, and is stripped on accept/reject.
+
+const PREFIX = 'author="dk"';
+
+function roundTripStamped(baseline, current) {
+  const edits = diffToEdits(baseline, current, PREFIX);
+  assertNonOverlapping(edits);
+  assertExpectedAnchors(edits, current);
+  const marked = applyEdits(current, edits);
+
+  // Every emitted mark carries the prefix immediately after the opening brace.
+  for (const e of edits) {
+    assert.ok(
+      e.insert.startsWith(`{${PREFIX}`),
+      `edit missing author prefix: ${JSON.stringify(e)}`,
+    );
+  }
+
+  // The prefix resolves to metaAuthor on every parsed node.
+  const parsed = parse(marked);
+  assert.ok(parsed.nodes.length >= 1, `expected marks in ${JSON.stringify(marked)}`);
+  for (const n of parsed.nodes) {
+    assert.equal(n.metaAuthor, "dk", `node not attributed: ${JSON.stringify(n.raw)}`);
+  }
+
+  // Round-trip survives the prefix: accept-all -> current, reject-all -> baseline
+  // (proves the prefix is stripped by finalize, never leaking into output).
+  const accepted = applyEdits(marked, finalizeEdits(parsed, ACCEPT_ALL));
+  const rejected = applyEdits(marked, finalizeEdits(parsed, REJECT_ALL));
+  assert.equal(accepted, current, `accept-all should recover current\n  marked: ${JSON.stringify(marked)}`);
+  assert.equal(rejected, baseline, `reject-all should recover baseline\n  marked: ${JSON.stringify(marked)}`);
+  return { edits, marked };
+}
+
+test("stamp: insertion carries author= and round-trips", () => {
+  const { marked } = roundTripStamped("the cat sat", "the big cat sat");
+  assert.ok(marked.includes(`{${PREFIX}++`), `marked was ${marked}`);
+});
+
+test("stamp: deletion carries author= and round-trips", () => {
+  const { marked } = roundTripStamped("the big cat sat", "the cat sat");
+  assert.ok(marked.includes(`{${PREFIX}--`), `marked was ${marked}`);
+});
+
+test("stamp: substitution carries author= and round-trips", () => {
+  const { marked } = roundTripStamped("the cat sat", "the dog sat");
+  assert.ok(marked.includes(`{${PREFIX}~~cat~>dog~~}`), `marked was ${marked}`);
+});
+
+test("stamp: empty prefix (default) yields bare marks", () => {
+  const edits = diffToEdits("the cat sat", "the dog sat", "");
+  assert.ok(edits.every((e) => /^\{[+~-]/.test(e.insert)), "default must emit bare marks");
+});
+
+test("stamp: fuzz 200 pairs round-trip with the author prefix", () => {
+  const rng = makeRng(0x1234abcd);
+  for (let trial = 0; trial < 200; trial++) {
+    const baseline = randomText(rng, 3 + Math.floor(rng() * 12));
+    const current = mutate(rng, baseline);
+    if (baseline === current) continue;
+    try {
+      roundTripStamped(baseline, current);
+    } catch (err) {
+      console.error(`stamp fuzz trial ${trial} failed:`);
+      console.error(`  baseline: ${JSON.stringify(baseline)}`);
+      console.error(`  current:  ${JSON.stringify(current)}`);
+      throw err;
+    }
+  }
+});
+
 console.log("done.");
