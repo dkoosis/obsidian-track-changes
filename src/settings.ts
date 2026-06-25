@@ -1,4 +1,4 @@
-import { App, PluginSettingTab, Setting } from "obsidian";
+import { App, PluginSettingTab, Setting, debounce } from "obsidian";
 import type TrackChangesCriticMarkupPlugin from "./main";
 import { DEFAULT_FINALIZE, type FinalizeOptions } from "./operations";
 import type { ReplyDateStyle } from "./operations";
@@ -135,16 +135,22 @@ export class TrackChangesCriticMarkupSettingsTab extends PluginSettingTab {
       .setDesc(
         "Display name stamped on replies you write and used as the author fallback for unattributed marks. Leave blank to appear as \"You\".",
       )
-      .addText((t) =>
-        t
+      .addText((t) => {
+        // Keep the in-memory value fresh every keystroke, but debounce the disk
+        // write + full re-render (all reading views + panel rebuild) so typing a
+        // name doesn't thrash the UI.
+        const persist = debounce(async () => {
+          await this.plugin.saveSettings();
+          this.plugin.refreshAfterSettingsChange();
+        }, 500);
+        return t
           .setPlaceholder("You")
           .setValue(this.plugin.settings.localAuthorName)
-          .onChange(async (v) => {
+          .onChange((v) => {
             this.plugin.settings.localAuthorName = v.trim();
-            await this.plugin.saveSettings();
-            this.plugin.refreshAfterSettingsChange();
-          }),
-      );
+            persist();
+          });
+      });
 
     new Setting(containerEl)
       .setName("Reply date style")
