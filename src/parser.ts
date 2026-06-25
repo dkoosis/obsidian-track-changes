@@ -135,7 +135,10 @@ function findIndentedCodeRegions(
     const nl = source.indexOf("\n", pos);
     const lineEnd = nl === -1 ? source.length : nl;
     const lineStart = pos;
-    const line = source.slice(lineStart, lineEnd);
+    // Strip a trailing CR so blank/indent tests behave on CRLF docs — otherwise
+    // a "blank" line reads as "\r", prevBlank goes false, and the block under it
+    // never opens (markup in indented code then leaks through, see otc CRLF bug).
+    const line = source.slice(lineStart, lineEnd).replace(/\r$/, "");
 
     if (inExisting(lineStart)) {
       if (blockStart >= 0) {

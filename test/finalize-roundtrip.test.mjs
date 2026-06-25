@@ -220,4 +220,18 @@ test("markup-in-code fixture: finalize is a complete no-op", () => {
   }
 });
 
+// Code-skip must hold under CRLF too. A Windows checkout (autocrlf) surfaced an
+// indented-code detector bug where a "blank" line read as "\r", so prevBlank
+// went false and the indented block never opened — markup in indented code then
+// leaked. Force CRLF here so the guard is deterministic on every OS, not only
+// where git happens to check out CRLF.
+test("markup-in-code fixture stays skipped under CRLF line endings", () => {
+  const lf = CORPUS.find((c) => c.name.includes("Code Samples")).src.replace(/\r\n/g, "\n");
+  const crlf = lf.replace(/\n/g, "\r\n");
+  assert.equal(parse(crlf).nodes.length, 0, "CRLF doc: markup in code must still be skipped");
+  for (const opts of [ACCEPT_ALL, REJECT_ALL]) {
+    assert.equal(applyEdits(crlf, finalizeEdits(parse(crlf), opts)), crlf, "CRLF finalize must be a no-op");
+  }
+});
+
 console.log("done.");
