@@ -62,6 +62,25 @@ test("unprefixed comment has null authorName", () => {
   assert.equal(r.nodes[0].text, "done");
 });
 
+test("@Name: addressing does not collide with author detection (cm-8)", () => {
+  // A body beginning `@Name:` addresses an agent (see docs/SKILL.md). The
+  // leading `@` is not alpha, so AUTHOR_RE never fires — authorName stays null
+  // (renders as "You") and the `@Claude:` survives verbatim in the body for the
+  // agent to read. Zero parser/operations code backs this; it's a pure
+  // convention. This test locks the non-collision.
+  const r = parse("{>>@Claude: rewrite this<<}");
+  assert.equal(r.nodes[0].authorName, null);
+  assert.equal(r.nodes[0].text, "@Claude: rewrite this");
+});
+
+test("author prefix composes with @Name: addressing (cm-8)", () => {
+  // {>>dk: @Claude: rewrite<<} = authored by dk, addressed to Claude. The
+  // author prefix is stripped once; the `@Claude:` addressing remains in body.
+  const r = parse("{>>dk: @Claude: rewrite<<}");
+  assert.equal(r.nodes[0].authorName, "dk");
+  assert.equal(r.nodes[0].text, "@Claude: rewrite");
+});
+
 test("multi-word fake prefix is not an author", () => {
   // The whole body becomes the comment text; authorName is null.
   const r = parse("{>>asdjak adakjds ajksdjads : oops<<}");

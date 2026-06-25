@@ -53,6 +53,12 @@ Reply conventions:
 
 The goal of a reply pass is to converge toward only the resolved-but-kept (`ignore`) threads remaining.
 
+## Addressing (optional)
+
+A comment body may begin with `@Name:` to direct it at a specific agent — `{>>@Claude: rewrite this<<}` addresses Claude. Act only on comments addressed to you (`@<your name>:`) or unaddressed; ignore comments addressed to another agent. The plugin treats `@Name:` as ordinary body text — there is no parser or routing code behind it, just this convention.
+
+Addressing composes with the author prefix: `{>>dk: @Claude: rewrite<<}` is authored by `dk` and addressed to Claude. The `<Name>:` prefix (authorship) is read first and stripped; the `@Name:` (addressing) stays in the body. A leading `@` is not a valid author token, so an addressing prefix is never mistaken for authorship.
+
 ## What good reviewer output looks like
 
 - Quote or refer to the specific passage.

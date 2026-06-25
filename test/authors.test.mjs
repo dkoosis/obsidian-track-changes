@@ -85,6 +85,13 @@ test("AUTHOR_RE rejects digit-leading name", () => {
   assert.equal("4chan: hi".match(AUTHOR_RE), null);
 });
 
+test("AUTHOR_RE ignores a leading @Name: addressing token (cm-8)", () => {
+  // `@Claude:` at the start of a comment body addresses an agent (docs/SKILL.md).
+  // The `@` is non-alpha, so AUTHOR_RE must not read it as an author prefix —
+  // otherwise the addressing token would be mistaken for authorship.
+  assert.equal("@Claude: rewrite this".match(AUTHOR_RE), null);
+});
+
 test("AUTHOR_RE accepts TODO: as a false positive (documented)", () => {
   const m = "TODO: fix".match(AUTHOR_RE);
   assert.ok(m);
