@@ -1,7 +1,5 @@
 # CLAUDE.md
 
-This file provides guidance to Claude Code (claude.ai/code) when working with code in this repository.
-
 ## Project
 
 Obsidian plugin that reviews CriticMarkup suggestions (typically authored by an AI) in a side panel — accept/reject/reply. No sidecar state; everything lives as `{++…++}`, `{--…--}`, `{~~old~>new~~}`, `{>>comment<<}`, `{==highlight==}` directly in the markdown.
@@ -13,7 +11,7 @@ npm install              # one-time
 npm run dev              # esbuild watch -> main.js (with inline sourcemaps)
 npm run build            # tsc --noEmit + esbuild production bundle
 npm run typecheck        # tsc --noEmit -skipLibCheck
-npm test                 # runs all six test files sequentially
+npm test                 # runs each configured .mjs test file sequentially (list in package.json)
 node test/parser.test.mjs        # run a single test file
 ```
 
